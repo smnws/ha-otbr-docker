@@ -34,10 +34,6 @@ class FlowControl(Enum):
             return "&uart-flow-control"
         return "&uart-init-deassert"
 
-    @property
-    def migrate_flag(self) -> str:
-        return self.value
-
 
 class LogLevel(Enum):
     EMERGENCY = 0
@@ -48,6 +44,25 @@ class LogLevel(Enum):
     NOTICE = 5
     INFO = 6
     DEBUG = 7
+
+
+class VarLibState(Enum):
+    MISSING = "missing"
+    EMPTY_DIR = "empty_dir"
+    NONEMPTY_DIR = "nonempty_dir"
+    SYMLINK = "symlink"
+    OTHER_FILE = "other_file"
+
+
+class StorageAction(Enum):
+    USE_VAR_LIB_DIRECTLY = "use_var_lib_directly"
+    SYMLINK_DATA_THREAD = "symlink_data_thread"
+
+    @property
+    def data_dir(self) -> Path:
+        if self is StorageAction.USE_VAR_LIB_DIRECTLY:
+            return Path("/var/lib/thread")
+        return Path("/data/thread")
 
 
 VALID_BAUDRATES = frozenset({57600, 115200, 230400, 460800, 921600, 1000000})
@@ -111,29 +126,15 @@ class RestApiConfig:
         return self.listen_address
 
 
-class StorageAction(Enum):
-    USE_VAR_LIB_DIRECTLY = "use_var_lib_directly"
-    SYMLINK_DATA_THREAD = "symlink_data_thread"
-
-
-@dataclass(frozen=True, slots=True)
-class StoragePlan:
-    action: StorageAction
-    data_dir: Path
-    symlink_target: Path | None
-    ephemeral_warning: bool
-
-
 @dataclass(frozen=True, slots=True)
 class HostProbe:
-    hostname: str
     net_interfaces: frozenset[str]
     default_route_interface: str | None
     ipv6_forwarding_enabled: bool
     mountpoints: frozenset[Path]
     existing_paths: frozenset[Path]
     available_channels: frozenset[Channel]
-    var_lib_thread_is_nonempty_dir: bool
+    var_lib_thread_state: VarLibState
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,8 +149,9 @@ class OtbrConfig:
     nat64: bool
     log_level: LogLevel
     rest_api: RestApiConfig
+    web_listen_address: str
     web_port: int | None
-    storage: StoragePlan
+    storage: StorageAction
     warnings: tuple[str, ...]
 
 
@@ -175,13 +177,51 @@ def _parse_bool(name: str, raw: str | None, default: bool) -> bool:
 
 
 def _parse_port(name: str, raw: str) -> int:
-    try:
-        port = int(raw)
-    except ValueError as exc:
-        raise ConfigError(f"Invalid port for {name}: {raw!r} (must be integer 1..65535).") from exc
+    if not re.fullmatch(r"\d+", raw):
+        raise ConfigError(f"Invalid port for {name}: {raw!r} (must be integer 1..65535).")
+    port = int(raw)
     if not (1 <= port <= 65535):
         raise ConfigError(f"Invalid port for {name}: {port} (must be between 1 and 65535).")
     return port
+
+
+def _parse_baudrate(raw: str | None) -> int:
+    if raw is None:
+        return 460800
+    try:
+        baudrate = int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"Invalid BAUDRATE: {raw!r}") from exc
+    if baudrate not in VALID_BAUDRATES:
+        valid_str = ", ".join(str(b) for b in sorted(VALID_BAUDRATES))
+        raise ConfigError(f"Unsupported BAUDRATE {baudrate}; expected one of: {valid_str}.")
+    return baudrate
+
+
+def _parse_log_level(raw: str | None) -> LogLevel:
+    if raw is None:
+        return LogLevel.NOTICE
+    try:
+        return LogLevel[raw.upper()]
+    except KeyError as exc:
+        valid_levels = ", ".join(lvl.name.lower() for lvl in LogLevel)
+        raise ConfigError(
+            f"Invalid OTBR_LOG_LEVEL: {raw!r} (expected one of: {valid_levels})."
+        ) from exc
+
+
+def _parse_ip_address(name: str, raw: str | None, default: str) -> str:
+    value = raw if raw is not None else default
+    if "%" in value:
+        raise ConfigError(
+            f"Invalid {name}: {value!r} (IPv6 scope/zone IDs are not supported)."
+        )
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError as exc:
+        raise ConfigError(
+            f"Invalid {name}: {value!r} (must be an IPv4 or IPv6 address)."
+        ) from exc
 
 
 def _parse_flow_control(raw: str | None) -> FlowControl:
@@ -206,9 +246,11 @@ def _parse_flow_control(raw: str | None) -> FlowControl:
 def _parse_network_device(raw: str) -> NetworkTransport:
     bracket_match = re.fullmatch(r"\[([^\]]+)\]:(\d+)", raw)
     if bracket_match:
-        host, port_str = bracket_match.group(1).strip(), bracket_match.group(2)
-        if not host:
-            raise ConfigError(f"Invalid NETWORK_DEVICE: {raw!r} (empty host).")
+        host, port_str = bracket_match.group(1), bracket_match.group(2)
+        if not host or "%" in host:
+            raise ConfigError(
+                f"Invalid NETWORK_DEVICE: {raw!r} (bracketed host must be a plain IP address)."
+            )
         try:
             ipaddress.ip_address(host)
         except ValueError as exc:
@@ -222,45 +264,56 @@ def _parse_network_device(raw: str) -> NetworkTransport:
             f"Invalid NETWORK_DEVICE: {raw!r} (expected host:port or [ipv6]:port)."
         )
     host, port_str = raw.rsplit(":", 1)
-    host = host.strip()
-    if not host:
-        raise ConfigError(f"Invalid NETWORK_DEVICE: {raw!r} (empty host).")
+    if not re.fullmatch(r"[A-Za-z0-9.-]+", host):
+        raise ConfigError(
+            f"Invalid NETWORK_DEVICE host: {host!r} (allowed characters: letters, digits, '.', '-')."
+        )
     return NetworkTransport(host=host, port=_parse_port("NETWORK_DEVICE", port_str))
 
 
-def _plan_storage(host: HostProbe) -> StoragePlan:
+def _parse_serial_device(raw: str, existing_paths: frozenset[Path]) -> SerialTransport:
+    dev_path = Path(raw)
+    if not dev_path.is_absolute():
+        raise ConfigError(f"DEVICE must be an absolute path: {raw!r}")
+    if any(ch.isspace() or ch in "?#" for ch in raw):
+        raise ConfigError(
+            f"DEVICE contains invalid characters (whitespace, '?', or '#'): {raw!r}"
+        )
+    if dev_path not in existing_paths:
+        raise ConfigError(f"DEVICE path does not exist: {dev_path}")
+    return SerialTransport(device=dev_path)
+
+
+def _plan_storage(host: HostProbe, warnings: list[str]) -> StorageAction:
     var_lib_thread = Path("/var/lib/thread")
     data_thread = Path("/data/thread")
     data_root = Path("/data")
 
     has_var_lib = var_lib_thread in host.mountpoints
-    has_data_thread = data_thread in host.mountpoints
+    has_data = bool({data_thread, data_root} & host.mountpoints)
 
-    if has_var_lib and has_data_thread:
+    if has_var_lib and has_data:
         raise ConfigError(
-            "Both /var/lib/thread and /data/thread are mounted; mount only one Thread data volume."
+            "Both /var/lib/thread and /data (or /data/thread) are mounted; "
+            "mount only one Thread data volume."
         )
 
     if has_var_lib:
-        return StoragePlan(
-            action=StorageAction.USE_VAR_LIB_DIRECTLY,
-            data_dir=var_lib_thread,
-            symlink_target=None,
-            ephemeral_warning=False,
-        )
+        return StorageAction.USE_VAR_LIB_DIRECTLY
 
-    if host.var_lib_thread_is_nonempty_dir:
+    if host.var_lib_thread_state is VarLibState.NONEMPTY_DIR:
         raise ConfigError(
             "/var/lib/thread is a non-empty unmounted directory; refusing to overwrite existing data."
         )
+    if host.var_lib_thread_state is VarLibState.OTHER_FILE:
+        raise ConfigError("/var/lib/thread exists and is not a directory or symlink.")
 
-    ephemeral = not bool({var_lib_thread, data_thread, data_root} & host.mountpoints)
-    return StoragePlan(
-        action=StorageAction.SYMLINK_DATA_THREAD,
-        data_dir=data_thread,
-        symlink_target=data_thread,
-        ephemeral_warning=ephemeral,
-    )
+    if not has_data:
+        warnings.append(
+            "No persistent volume mounted at /data/thread, /data, or /var/lib/thread; "
+            "Thread dataset will be lost when the container is recreated."
+        )
+    return StorageAction.SYMLINK_DATA_THREAD
 
 
 def parse_mountpoints(mountinfo_text: str) -> frozenset[Path]:
@@ -307,25 +360,11 @@ def parse_config(env: Mapping[str, str], host: HostProbe) -> OtbrConfig:
                 "using NETWORK_DEVICE via /tmp/ttyOTBR."
             )
     elif device_raw is not None:
-        dev_path = Path(device_raw)
-        if dev_path not in host.existing_paths:
-            raise ConfigError(f"DEVICE path does not exist: {dev_path}")
-        transport = SerialTransport(device=dev_path)
+        transport = _parse_serial_device(device_raw, host.existing_paths)
     else:
         raise ConfigError("Either DEVICE or NETWORK_DEVICE must be set.")
 
-    baudrate_raw = _get_env(env, "BAUDRATE")
-    if baudrate_raw is None:
-        baudrate = 460800
-    else:
-        try:
-            baudrate = int(baudrate_raw)
-        except ValueError as exc:
-            raise ConfigError(f"Invalid BAUDRATE: {baudrate_raw!r}") from exc
-        if baudrate not in VALID_BAUDRATES:
-            valid_str = ", ".join(str(b) for b in sorted(VALID_BAUDRATES))
-            raise ConfigError(f"Unsupported BAUDRATE {baudrate}; expected one of: {valid_str}.")
-
+    baudrate = _parse_baudrate(_get_env(env, "BAUDRATE"))
     flow_control = _parse_flow_control(_get_env(env, "FLOW_CONTROL"))
 
     backbone_if = _get_env(env, "BACKBONE_IF") or host.default_route_interface
@@ -341,30 +380,15 @@ def parse_config(env: Mapping[str, str], host: HostProbe) -> OtbrConfig:
 
     firewall = _parse_bool("FIREWALL", _get_env(env, "FIREWALL"), default=True)
     nat64 = _parse_bool("NAT64", _get_env(env, "NAT64"), default=False)
+    log_level = _parse_log_level(_get_env(env, "OTBR_LOG_LEVEL"))
 
-    log_raw = _get_env(env, "OTBR_LOG_LEVEL")
-    if log_raw is None:
-        log_level = LogLevel.NOTICE
-    else:
-        try:
-            log_level = LogLevel[log_raw.upper()]
-        except KeyError as exc:
-            valid_levels = ", ".join(lvl.name.lower() for lvl in LogLevel)
-            raise ConfigError(
-                f"Invalid OTBR_LOG_LEVEL: {log_raw!r} (expected one of: {valid_levels})."
-            ) from exc
-
-    rest_addr_raw = _get_env(env, "REST_LISTEN_ADDRESS") or "::"
-    try:
-        rest_addr = str(ipaddress.ip_address(rest_addr_raw))
-    except ValueError as exc:
-        raise ConfigError(
-            f"Invalid REST_LISTEN_ADDRESS: {rest_addr_raw!r} (must be an IPv4 or IPv6 address)."
-        ) from exc
-
+    rest_addr = _parse_ip_address("REST_LISTEN_ADDRESS", _get_env(env, "REST_LISTEN_ADDRESS"), "::")
     rest_port_raw = _get_env(env, "REST_LISTEN_PORT")
     rest_port = _parse_port("REST_LISTEN_PORT", rest_port_raw) if rest_port_raw else 8081
 
+    web_listen_address = _parse_ip_address(
+        "WEB_LISTEN_ADDRESS", _get_env(env, "WEB_LISTEN_ADDRESS"), "::"
+    )
     web_port_raw = _get_env(env, "WEB_PORT")
     web_port = _parse_port("WEB_PORT", web_port_raw) if web_port_raw else None
     if web_port is not None and web_port == rest_port:
@@ -372,12 +396,7 @@ def parse_config(env: Mapping[str, str], host: HostProbe) -> OtbrConfig:
             f"WEB_PORT ({web_port}) cannot equal REST_LISTEN_PORT ({rest_port})."
         )
 
-    storage = _plan_storage(host)
-    if storage.ephemeral_warning:
-        warnings.append(
-            "No persistent volume mounted at /data/thread, /data, or /var/lib/thread; "
-            "Thread dataset will be lost when the container is recreated."
-        )
+    storage = _plan_storage(host, warnings)
 
     if not host.ipv6_forwarding_enabled:
         warnings.append(
@@ -396,6 +415,7 @@ def parse_config(env: Mapping[str, str], host: HostProbe) -> OtbrConfig:
         nat64=nat64,
         log_level=log_level,
         rest_api=RestApiConfig(listen_address=rest_addr, port=rest_port),
+        web_listen_address=web_listen_address,
         web_port=web_port,
         storage=storage,
         warnings=tuple(warnings),
@@ -414,7 +434,7 @@ def render_config_env(cfg: OtbrConfig) -> str:
         ("OTBR_DEVICE", str(cfg.transport.device_path)),
         ("OTBR_NETWORK_DEVICE", network_device),
         ("OTBR_BAUDRATE", str(cfg.baudrate)),
-        ("OTBR_FLOW_CONTROL", cfg.flow_control.migrate_flag),
+        ("OTBR_FLOW_CONTROL", cfg.flow_control.value),
         ("OTBR_UART_FLOW_PARAM", cfg.flow_control.uart_query_param),
         ("OTBR_FIREWALL", "1" if cfg.firewall else "0"),
         ("OTBR_NAT64", "1" if cfg.nat64 else "0"),
@@ -423,6 +443,7 @@ def render_config_env(cfg: OtbrConfig) -> str:
         ("OTBR_REST_LISTEN_ADDRESS", cfg.rest_api.listen_address),
         ("OTBR_REST_LISTEN_PORT", str(cfg.rest_api.port)),
         ("OTBR_REST_CHECK_HOST", cfg.rest_api.probe_host),
+        ("OTBR_WEB_LISTEN_ADDRESS", cfg.web_listen_address),
         ("OTBR_WEB_PORT", str(cfg.web_port) if cfg.web_port is not None else ""),
         ("OTBR_DATA_DIR", str(cfg.storage.data_dir)),
     ]

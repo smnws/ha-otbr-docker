@@ -2,10 +2,10 @@
 # shellcheck shell=bash
 set -uo pipefail
 
-if [[ "$1" -eq 256 ]]; then
-    e=$((128 + $2))
+if [[ "${1:-0}" -eq 256 ]]; then
+    e=$((128 + ${2:-0}))
 else
-    e="$1"
+    e="${1:-0}"
 fi
 
 # shellcheck source=rootfs/usr/local/lib/otbr/common.sh

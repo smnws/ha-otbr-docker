@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# shellcheck disable=SC1091
-source /run/otbr/config.env
+# shellcheck source=rootfs/usr/local/lib/otbr/common.sh
+source /usr/local/lib/otbr/common.sh
+load_otbr_config
 test -S "/run/openthread-${OTBR_THREAD_IF}.sock"
-nc -z "${OTBR_REST_CHECK_HOST}" "${OTBR_REST_LISTEN_PORT}"
+nc -z -w 2 "${OTBR_REST_CHECK_HOST}" "${OTBR_REST_LISTEN_PORT}"

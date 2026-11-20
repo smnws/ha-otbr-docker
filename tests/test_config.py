@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
+import config
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "rootfs/usr/local/lib/otbr"))
-import config  # noqa: E402
 
 
 def make_host(
     *,
-    hostname: str = "rpi5",
     net_interfaces: frozenset[str] = frozenset({"lo", "eth0", "wlan0"}),
     default_route_interface: str | None = "eth0",
     ipv6_forwarding_enabled: bool = True,
@@ -20,17 +16,16 @@ def make_host(
     available_channels: frozenset[config.Channel] = frozenset(
         {config.Channel.STABLE, config.Channel.BETA}
     ),
-    var_lib_thread_is_nonempty_dir: bool = False,
+    var_lib_thread_state: config.VarLibState = config.VarLibState.MISSING,
 ) -> config.HostProbe:
     return config.HostProbe(
-        hostname=hostname,
         net_interfaces=net_interfaces,
         default_route_interface=default_route_interface,
         ipv6_forwarding_enabled=ipv6_forwarding_enabled,
         mountpoints=mountpoints,
         existing_paths=existing_paths,
         available_channels=available_channels,
-        var_lib_thread_is_nonempty_dir=var_lib_thread_is_nonempty_dir,
+        var_lib_thread_state=var_lib_thread_state,
     )
 
 
@@ -52,7 +47,7 @@ def test_pi_dropin_compose_config() -> None:
     assert cfg.baudrate == 1000000
     assert cfg.flow_control is config.FlowControl.NONE
     assert cfg.flow_control.uart_query_param == "&uart-init-deassert"
-    assert cfg.flow_control.migrate_flag == "none"
+    assert cfg.flow_control.value == "none"
     assert cfg.backbone_if == "eth0"
     assert cfg.thread_if == "wpan0"
     assert cfg.firewall is True
@@ -60,13 +55,10 @@ def test_pi_dropin_compose_config() -> None:
     assert cfg.log_level is config.LogLevel.ERROR
     assert cfg.rest_api == config.RestApiConfig(listen_address="::", port=8081)
     assert cfg.rest_api.probe_host == "::1"
+    assert cfg.web_listen_address == "::"
     assert cfg.web_port is None
-    assert cfg.storage == config.StoragePlan(
-        action=config.StorageAction.SYMLINK_DATA_THREAD,
-        data_dir=Path("/data/thread"),
-        symlink_target=Path("/data/thread"),
-        ephemeral_warning=False,
-    )
+    assert cfg.storage is config.StorageAction.SYMLINK_DATA_THREAD
+    assert cfg.storage.data_dir == Path("/data/thread")
     assert cfg.warnings == ()
 
     rendered = config.render_config_env(cfg)
@@ -77,6 +69,7 @@ def test_pi_dropin_compose_config() -> None:
     assert "OTBR_FLOW_CONTROL=none\n" in rendered
     assert "OTBR_UART_FLOW_PARAM='&uart-init-deassert'\n" in rendered
     assert "OTBR_LOG_LEVEL_INT=3\n" in rendered
+    assert "OTBR_WEB_LISTEN_ADDRESS=::\n" in rendered
 
 
 def test_defaults_and_hardware_flow_control() -> None:
@@ -89,6 +82,7 @@ def test_defaults_and_hardware_flow_control() -> None:
     assert cfg.firewall is True
     assert cfg.nat64 is False
     assert cfg.log_level is config.LogLevel.NOTICE
+    assert cfg.web_listen_address == "::"
 
 
 def test_software_flow_control_rejected_with_patch_guidance() -> None:
@@ -120,10 +114,43 @@ def test_network_device_overrides_device_with_warning() -> None:
     assert any("NETWORK_DEVICE" in w for w in cfg.warnings)
 
 
-@pytest.mark.parametrize("bad_net", ["fd00::1:6638", "host", "host:0", "host:70000", ":6638"])
+@pytest.mark.parametrize(
+    "bad_net",
+    [
+        "fd00::1:6638",
+        "host",
+        "host:0",
+        "host:70000",
+        ":6638",
+        "10.0.0.1,exec=id:6638",
+        "10.0.0.1!sh:6638",
+        "bad host:6638",
+        "host :6638",
+        "[fe80::1%eth0]:6638",
+        "host:+6638",
+    ],
+)
 def test_invalid_network_device_rejected(bad_net: str) -> None:
     with pytest.raises(config.ConfigError):
         config.parse_config({"NETWORK_DEVICE": bad_net}, make_host())
+
+
+@pytest.mark.parametrize(
+    "bad_device",
+    [
+        "dev/ttyACM0",
+        "ttyACM0",
+        "/dev/tty ACM0",
+        "/dev/ttyACM0?uart-baudrate=115200",
+        "/dev/ttyACM0#frag",
+    ],
+)
+def test_invalid_device_syntax_rejected(bad_device: str) -> None:
+    with pytest.raises(config.ConfigError):
+        config.parse_config(
+            {"DEVICE": bad_device},
+            make_host(existing_paths=frozenset({Path(bad_device)})),
+        )
 
 
 def test_missing_device_or_missing_path_rejected() -> None:
@@ -140,18 +167,21 @@ def test_backbone_interface_validation() -> None:
         config.parse_config({"DEVICE": "/dev/ttyACM0", "BACKBONE_IF": "eth99"}, make_host())
 
 
-def test_rest_and_web_port_validation() -> None:
+def test_rest_and_web_address_and_port_validation() -> None:
     cfg = config.parse_config(
         {
             "DEVICE": "/dev/ttyACM0",
             "REST_LISTEN_ADDRESS": "0.0.0.0",
             "REST_LISTEN_PORT": "8082",
+            "WEB_LISTEN_ADDRESS": "127.0.0.1",
             "WEB_PORT": "8080",
         },
         make_host(),
     )
     assert cfg.rest_api.probe_host == "127.0.0.1"
+    assert cfg.web_listen_address == "127.0.0.1"
     assert cfg.web_port == 8080
+    assert "OTBR_WEB_LISTEN_ADDRESS=127.0.0.1\n" in config.render_config_env(cfg)
 
     with pytest.raises(config.ConfigError, match="cannot equal REST_LISTEN_PORT"):
         config.parse_config(
@@ -159,44 +189,77 @@ def test_rest_and_web_port_validation() -> None:
             make_host(),
         )
 
+    with pytest.raises(config.ConfigError, match="scope/zone IDs"):
+        config.parse_config(
+            {"DEVICE": "/dev/ttyACM0", "REST_LISTEN_ADDRESS": "fe80::1%eth0"},
+            make_host(),
+        )
+
+    with pytest.raises(config.ConfigError, match="scope/zone IDs"):
+        config.parse_config(
+            {"DEVICE": "/dev/ttyACM0", "WEB_LISTEN_ADDRESS": "fe80::1%eth0"},
+            make_host(),
+        )
+
 
 def test_storage_plan_invariants() -> None:
     direct = config.parse_config(
         {"DEVICE": "/dev/ttyACM0"},
-        make_host(mountpoints=frozenset({Path("/"), Path("/var/lib/thread")})),
+        make_host(
+            mountpoints=frozenset({Path("/"), Path("/var/lib/thread")}),
+            var_lib_thread_state=config.VarLibState.NONEMPTY_DIR,
+        ),
     )
-    assert direct.storage.action is config.StorageAction.USE_VAR_LIB_DIRECTLY
-    assert direct.storage.symlink_target is None
-    assert direct.storage.ephemeral_warning is False
+    assert direct.storage is config.StorageAction.USE_VAR_LIB_DIRECTLY
+    assert direct.storage.data_dir == Path("/var/lib/thread")
+    assert direct.warnings == ()
 
     data_parent = config.parse_config(
         {"DEVICE": "/dev/ttyACM0"},
-        make_host(mountpoints=frozenset({Path("/"), Path("/data")})),
+        make_host(
+            mountpoints=frozenset({Path("/"), Path("/data")}),
+            var_lib_thread_state=config.VarLibState.EMPTY_DIR,
+        ),
     )
-    assert data_parent.storage.action is config.StorageAction.SYMLINK_DATA_THREAD
-    assert data_parent.storage.ephemeral_warning is False
+    assert data_parent.storage is config.StorageAction.SYMLINK_DATA_THREAD
+    assert data_parent.storage.data_dir == Path("/data/thread")
+    assert data_parent.warnings == ()
 
     ephemeral = config.parse_config(
         {"DEVICE": "/dev/ttyACM0"},
-        make_host(mountpoints=frozenset({Path("/")})),
+        make_host(
+            mountpoints=frozenset({Path("/")}),
+            var_lib_thread_state=config.VarLibState.SYMLINK,
+        ),
     )
-    assert ephemeral.storage.ephemeral_warning is True
+    assert ephemeral.storage is config.StorageAction.SYMLINK_DATA_THREAD
     assert any("No persistent volume" in w for w in ephemeral.warnings)
 
-    with pytest.raises(config.ConfigError, match="Both /var/lib/thread and /data/thread"):
-        config.parse_config(
-            {"DEVICE": "/dev/ttyACM0"},
-            make_host(
-                mountpoints=frozenset({Path("/var/lib/thread"), Path("/data/thread")})
-            ),
-        )
+    for dual_mounts in (
+        frozenset({Path("/var/lib/thread"), Path("/data/thread")}),
+        frozenset({Path("/var/lib/thread"), Path("/data")}),
+    ):
+        with pytest.raises(config.ConfigError, match="Both /var/lib/thread and /data"):
+            config.parse_config(
+                {"DEVICE": "/dev/ttyACM0"},
+                make_host(mountpoints=dual_mounts),
+            )
 
     with pytest.raises(config.ConfigError, match="non-empty unmounted directory"):
         config.parse_config(
             {"DEVICE": "/dev/ttyACM0"},
             make_host(
                 mountpoints=frozenset({Path("/")}),
-                var_lib_thread_is_nonempty_dir=True,
+                var_lib_thread_state=config.VarLibState.NONEMPTY_DIR,
+            ),
+        )
+
+    with pytest.raises(config.ConfigError, match="not a directory or symlink"):
+        config.parse_config(
+            {"DEVICE": "/dev/ttyACM0"},
+            make_host(
+                mountpoints=frozenset({Path("/")}),
+                var_lib_thread_state=config.VarLibState.OTHER_FILE,
             ),
         )
 

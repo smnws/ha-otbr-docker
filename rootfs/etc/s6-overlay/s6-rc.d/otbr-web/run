@@ -6,5 +6,5 @@ set -euo pipefail
 source /usr/local/lib/otbr/common.sh
 load_otbr_config
 
-log_info "Starting otbr-web on port ${OTBR_WEB_PORT}..."
-exec stdbuf -oL /usr/sbin/otbr-web -I "${OTBR_THREAD_IF}" "-d${OTBR_LOG_LEVEL_INT}" -s -a "::" -p "${OTBR_WEB_PORT}"
+log_info "Starting otbr-web on ${OTBR_WEB_LISTEN_ADDRESS}:${OTBR_WEB_PORT}..."
+exec stdbuf -oL /usr/sbin/otbr-web -I "${OTBR_THREAD_IF}" "-d${OTBR_LOG_LEVEL_INT}" -s -a "${OTBR_WEB_LISTEN_ADDRESS}" -p "${OTBR_WEB_PORT}"

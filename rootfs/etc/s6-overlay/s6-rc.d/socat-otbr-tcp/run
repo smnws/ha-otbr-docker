@@ -7,7 +7,8 @@ source /usr/local/lib/otbr/common.sh
 load_otbr_config
 
 log_info "Starting socat TCP client for ${OTBR_NETWORK_DEVICE}..."
+rm -f "${OTBR_DEVICE}"
 exec s6-notifyoncheck -d -s 300 -w 300 -n 0 \
     /usr/bin/socat -d \
     "tcp:${OTBR_NETWORK_DEVICE},connect-timeout=10,forever,interval=10" \
-    pty,raw,echo=0,link=/tmp/ttyOTBR,ignoreeof
+    "pty,raw,echo=0,link=${OTBR_DEVICE},ignoreeof"
