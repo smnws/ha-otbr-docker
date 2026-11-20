@@ -159,8 +159,15 @@ def test_check_fails_on_cmake_flag_drift(
     sandbox_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     build_sh = sandbox_repo / "build" / "build-otbr.sh"
+    original = build_sh.read_text(encoding="utf-8")
     build_sh.write_text(
-        build_sh.read_text(encoding="utf-8").replace("-DOTBR_NAT64=ON", "-DOTBR_NAT64=OFF"),
+        original.replace("-GNinja ..", "-GNinja -DCMAKE_BUILD_TYPE=Release .."),
+        encoding="utf-8",
+    )
+    assert upstream_pins.main(["--repo-root", str(sandbox_repo), "check"]) == 0
+
+    build_sh.write_text(
+        original.replace("-DOTBR_NAT64=ON", "-DOTBR_NAT64=OFF"),
         encoding="utf-8",
     )
     assert upstream_pins.main(["--repo-root", str(sandbox_repo), "check"]) == 1

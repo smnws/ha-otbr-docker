@@ -42,6 +42,11 @@ grep -Fxq "otbr_commit=${otbr_sha}" "${prefix_none}/BUILD_INFO"
 grep -Fxq "openthread_commit=${ot_sha}" "${prefix_none}/BUILD_INFO"
 grep -Fxq "patches=none" "${prefix_none}/BUILD_INFO"
 
+prefix_ref="${tmp_dir}/opt-ref"
+"${apply_script}" --src-dir "${src_dir}" --patches-dir "${empty_patches}" stable "${prefix_ref}" "main"
+grep -Fxq "otbr_commit=${otbr_sha}" "${prefix_ref}/BUILD_INFO"
+grep -Fxq "otbr_ref=main" "${prefix_ref}/BUILD_INFO"
+
 patches_dir="${tmp_dir}/patches"
 mkdir -p "${patches_dir}/ot-br-posix" "${patches_dir}/openthread"
 

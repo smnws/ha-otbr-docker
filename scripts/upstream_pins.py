@@ -23,6 +23,7 @@ PIN_NAMES = (
     "UNIVERSAL_SILABS_FLASHER_VERSION",
 )
 ROOTFS_EXCLUDED = frozenset({"usr/local/bin/migrate_otbr_settings.py"})
+LOCAL_EXTRA_CMAKE_FLAGS = frozenset({"-DCMAKE_BUILD_TYPE=Release"})
 OT_BR_POSIX_REPO = "https://github.com/openthread/ot-br-posix.git"
 
 _APT_VALUE_FLAGS = frozenset({"-t", "--target-release", "-o", "--option", "-c", "--config-file"})
@@ -430,7 +431,8 @@ def cmd_check(repo_root: Path) -> int:
     errors.extend(_diff_items("Builder apt packages", facts.builder_apts, l_builder_apts))
     errors.extend(_diff_items("Runtime apt packages", facts.runtime_apts, l_runtime_apts))
     errors.extend(_diff_items("Runtime pip packages", facts.runtime_pips, l_runtime_pips))
-    errors.extend(_diff_items("CMake -D flags", facts.cmake_flags, l_cmake))
+    effective_local_cmake = tuple(sorted(set(l_cmake) - LOCAL_EXTRA_CMAKE_FLAGS))
+    errors.extend(_diff_items("CMake -D flags", facts.cmake_flags, effective_local_cmake))
 
     expected_manifest = compute_rootfs_manifest(paths.upstream_rootfs)
     if not paths.manifest.is_file():

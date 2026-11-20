@@ -112,10 +112,14 @@ apply_repo_patches "openthread" "${src_dir}/third_party/openthread/repo"
 
 if [[ "${check_only}" -eq 0 ]]; then
     mkdir -p "${install_prefix}"
+    resolved_otbr_commit="$(git -C "${src_dir}" rev-parse HEAD)"
     openthread_commit="$(git -C "${src_dir}/third_party/openthread/repo" rev-parse HEAD)"
     {
         echo "channel=${channel}"
-        echo "otbr_commit=${otbr_commit}"
+        echo "otbr_commit=${resolved_otbr_commit}"
+        if [[ "${otbr_commit}" != "${resolved_otbr_commit}" ]]; then
+            echo "otbr_ref=${otbr_commit}"
+        fi
         echo "openthread_commit=${openthread_commit}"
         if [[ ${#applied_lines[@]} -eq 0 ]]; then
             echo "patches=none"
