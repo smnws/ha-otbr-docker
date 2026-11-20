@@ -13,6 +13,7 @@ services:
       # NETWORK_DEVICE: "192.168.1.50:6638"
       BACKBONE_IF: "eth0"
       BAUDRATE: "460800"
+      # Valid values: "0" ("none"), "1" ("hardware"), or "software" (XON/XOFF).
       FLOW_CONTROL: "1"
       FIREWALL: "1"
       NAT64: "0"
