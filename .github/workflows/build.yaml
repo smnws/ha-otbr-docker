@@ -1,0 +1,161 @@
+name: Build and Publish
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install --no-cache-dir pytest
+
+      - name: Check upstream drift and patches
+        run: |
+          python3 scripts/upstream_pins.py check
+          python3 scripts/upstream_pins.py patch-check
+
+      - name: Run shellcheck
+        run: |
+          shellcheck -x \
+            build/*.sh \
+            rootfs/usr/local/lib/otbr/*.sh \
+            rootfs/etc/s6-overlay/scripts/*.sh \
+            rootfs/etc/s6-overlay/s6-rc.d/*/run \
+            rootfs/etc/s6-overlay/s6-rc.d/*/finish \
+            rootfs/etc/s6-overlay/s6-rc.d/*/data/check \
+            tests/*.sh
+
+      - name: Run hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+
+      - name: Run unit tests
+        run: |
+          pytest -v tests/
+          ./tests/test_firewall.sh
+          ./tests/test_apply_patches.sh
+
+  build:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch_slug: amd64
+            # Switch arm64 runner to ubuntu-24.04-arm for native builds without QEMU.
+          - platform: linux/arm64
+            arch_slug: arm64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up QEMU for non-native builds
+        if: matrix.platform != 'linux/amd64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build local image for smoke tests
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: otbr-ha:smoke-${{ matrix.arch_slug }}
+          cache-from: type=gha,scope=${{ matrix.arch_slug }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch_slug }}
+
+      - name: Run container smoke checks
+        run: ./tests/smoke_container.sh "otbr-ha:smoke-${{ matrix.arch_slug }}" "${{ matrix.platform }}"
+
+      - name: Push per-arch image by digest
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          cache-from: type=gha,scope=${{ matrix.arch_slug }}
+          outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Record digest
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${{ steps.push.outputs.digest }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch_slug }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Create and push multi-arch manifest
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tags=()
+          short_sha="sha-${GITHUB_SHA::7}"
+          tags+=("-t" "${IMAGE}:${short_sha}")
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            tags+=("-t" "${IMAGE}:latest")
+          fi
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            tag_name="${GITHUB_REF#refs/tags/}"
+            tags+=("-t" "${IMAGE}:${tag_name}")
+          fi
+
+          sources=()
+          for f in /tmp/digests/sha256:*; do
+            sources+=("${IMAGE}@$(basename "${f}")")
+          done
+
+          docker buildx imagetools create "${tags[@]}" "${sources[@]}"

@@ -1,0 +1,64 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Update upstream submodule and sync pins
+        id: sync
+        run: |
+          set -euo pipefail
+          old_sha="$(git -C upstream rev-parse --short HEAD)"
+          git submodule update --remote upstream
+          new_sha="$(git -C upstream rev-parse --short HEAD)"
+          python3 scripts/upstream_pins.py sync
+
+          {
+            echo "old_sha=${old_sha}"
+            echo "new_sha=${new_sha}"
+            echo "rootfs_diff<<EOF"
+            python3 scripts/upstream_pins.py rootfs-diff || true
+            echo "EOF"
+            echo "drift_report<<EOF"
+            python3 scripts/upstream_pins.py check 2>&1 || true
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: sync/upstream
+          commit-message: "chore: sync upstream app-openthread-border-router (${{ steps.sync.outputs.new_sha }})"
+          title: "chore: sync upstream app-openthread-border-router (${{ steps.sync.outputs.new_sha }})"
+          body: |
+            Updated `upstream` submodule from `${{ steps.sync.outputs.old_sha }}` to `${{ steps.sync.outputs.new_sha }}` and synchronized `# BEGIN UPSTREAM-PINS` in `Dockerfile`.
+
+            ## Upstream drift report
+
+            ```text
+            ${{ steps.sync.outputs.drift_report }}
+            ```
+
+            ## Upstream `rootfs/` diff
+
+            ```diff
+            ${{ steps.sync.outputs.rootfs_diff }}
+            ```
