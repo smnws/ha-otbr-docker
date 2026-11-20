@@ -250,13 +250,14 @@ def test_stage2_software_flow_control_wires_config_env(
     device.touch()
 
     rc = stage2_init.run_stage2(
-        {"DEVICE": str(device), "BACKBONE_IF": "eth0", "FLOW_CONTROL": "software"},
+        {"DEVICE": str(device), "BACKBONE_IF": "eth0", "FLOW_CONTROL": "software", "TX_POWER": "7"},
         paths=paths,
         default_route_detector=lambda: "eth0",
     )
     assert rc == 0
     captured = capsys.readouterr()
     assert "flow_control=software" in captured.out
+    assert "tx_power=7" in captured.out
     assert captured.err == ""
 
     bash_check = subprocess.run(
@@ -264,15 +265,15 @@ def test_stage2_software_flow_control_wires_config_env(
             "bash",
             "-c",
             (
-                f'source "{paths.run_config_env}" && printf "%s|%s" '
-                '"$OTBR_FLOW_CONTROL" "$OTBR_UART_FLOW_PARAM"'
+                f'source "{paths.run_config_env}" && printf "%s|%s|%s" '
+                '"$OTBR_FLOW_CONTROL" "$OTBR_UART_FLOW_PARAM" "$OTBR_TX_POWER"'
             ),
         ],
         capture_output=True,
         text=True,
         check=True,
     )
-    assert bash_check.stdout == "software|&uart-flow-control=software&uart-init-deassert"
+    assert bash_check.stdout == "software|&uart-flow-control=software&uart-init-deassert|7"
 
 
 def test_stage2_invalid_config_exits_1_without_writing_env(

@@ -72,17 +72,31 @@ def test_pi_dropin_compose_config() -> None:
     assert "OTBR_WEB_LISTEN_ADDRESS=::\n" in rendered
 
 
-def test_defaults_and_hardware_flow_control() -> None:
+def test_defaults_and_software_flow_control() -> None:
     cfg = config.parse_config({"DEVICE": "/dev/ttyACM0"}, make_host())
     assert cfg.channel is config.Channel.STABLE
     assert cfg.baudrate == 460800
-    assert cfg.flow_control is config.FlowControl.HARDWARE
-    assert cfg.flow_control.uart_query_param == "&uart-flow-control"
+    assert cfg.flow_control is config.FlowControl.SOFTWARE
+    assert cfg.flow_control.uart_query_param == "&uart-flow-control=software&uart-init-deassert"
+    assert cfg.tx_power == 6
     assert cfg.backbone_if == "eth0"
     assert cfg.firewall is True
     assert cfg.nat64 is False
     assert cfg.log_level is config.LogLevel.NOTICE
     assert cfg.web_listen_address == "::"
+    assert cfg.warnings == ()
+
+
+@pytest.mark.parametrize("raw_value", ["1", "hardware", "HARDWARE"])
+def test_hardware_flow_control_accepted(raw_value: str) -> None:
+    cfg = config.parse_config(
+        {"DEVICE": "/dev/ttyACM0", "FLOW_CONTROL": raw_value},
+        make_host(),
+    )
+    assert cfg.flow_control is config.FlowControl.HARDWARE
+    assert cfg.flow_control.value == "hardware"
+    assert cfg.flow_control.uart_query_param == "&uart-flow-control"
+    assert cfg.warnings == ()
 
 
 @pytest.mark.parametrize("raw_value", ["software", "SOFTWARE"])
@@ -115,6 +129,19 @@ def test_invalid_flow_control_rejected() -> None:
         config.parse_config({"DEVICE": "/dev/ttyACM0", "FLOW_CONTROL": "invalid"}, make_host())
 
 
+@pytest.mark.parametrize(("raw", "expected"), [("-20", -20), ("0", 0), ("7", 7), ("20", 20)])
+def test_tx_power_accepted(raw: str, expected: int) -> None:
+    cfg = config.parse_config({"DEVICE": "/dev/ttyACM0", "TX_POWER": raw}, make_host())
+    assert cfg.tx_power == expected
+    assert f"OTBR_TX_POWER={expected}\n" in config.render_config_env(cfg)
+
+
+@pytest.mark.parametrize("bad_power", ["-21", "21", "6.5", "+6", "abc"])
+def test_invalid_tx_power_rejected(bad_power: str) -> None:
+    with pytest.raises(config.ConfigError, match=r"Invalid TX_POWER"):
+        config.parse_config({"DEVICE": "/dev/ttyACM0", "TX_POWER": bad_power}, make_host())
+
+
 @pytest.mark.parametrize(
     ("raw", "expected_target"),
     [
@@ -128,6 +155,8 @@ def test_network_device_variants(raw: str, expected_target: str) -> None:
     assert isinstance(cfg.transport, config.NetworkTransport)
     assert cfg.transport.device_path == Path("/tmp/ttyOTBR")
     assert cfg.transport.socat_target == expected_target
+    assert cfg.flow_control is config.FlowControl.NONE
+    assert cfg.warnings == ()
 
 
 def test_network_device_overrides_device_with_warning() -> None:

@@ -44,7 +44,8 @@ COPY build/fetch-otbr.sh /usr/local/bin/
 FROM otbr-builder-base AS otbr-beta-builder
 ARG OTBR_BETA_VERSION
 
-RUN /usr/local/bin/fetch-otbr.sh "${OTBR_BETA_VERSION}"
+RUN --mount=type=cache,target=/var/cache/otbr-git,sharing=locked \
+    /usr/local/bin/fetch-otbr.sh "${OTBR_BETA_VERSION}"
 
 COPY build/apply-patches.sh build/build-otbr.sh /usr/local/bin/
 COPY patches/ /usr/src/patches/
@@ -55,7 +56,8 @@ RUN /usr/local/bin/apply-patches.sh beta /opt/otbr-beta "${OTBR_BETA_VERSION}" \
 FROM otbr-builder-base AS otbr-stable-builder
 ARG OTBR_VERSION
 
-RUN /usr/local/bin/fetch-otbr.sh "${OTBR_VERSION}"
+RUN --mount=type=cache,target=/var/cache/otbr-git,sharing=locked \
+    /usr/local/bin/fetch-otbr.sh "${OTBR_VERSION}"
 
 COPY build/apply-patches.sh build/build-otbr.sh /usr/local/bin/
 COPY patches/ /usr/src/patches/
@@ -86,6 +88,7 @@ RUN apt-get update \
     && pip install --break-system-packages --no-cache-dir \
         "universal-silabs-flasher==${UNIVERSAL_SILABS_FLASHER_VERSION}" \
         "serialx==${SERIALX_VERSION}" \
+    && apt-get purge -y --auto-remove python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /etc/iproute2 \
@@ -101,7 +104,7 @@ ENV LOG_FORMAT="{LEVEL}: {MESSAGE}" \
     S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD ["/etc/s6-overlay/s6-rc.d/otbr-agent/data/check"]
+    CMD ["/usr/local/lib/otbr/healthcheck.py"]
 
 LABEL org.opencontainers.image.title="OpenThread Border Router (Standalone)" \
     org.opencontainers.image.description="Standalone Docker image built from home-assistant/app-openthread-border-router" \

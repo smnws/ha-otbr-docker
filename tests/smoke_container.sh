@@ -53,7 +53,17 @@ docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
         /usr/local/lib/otbr/stage2_init.py
         test "$(readlink /usr/sbin/otbr-agent)" = "/opt/otbr-stable/sbin/otbr-agent"
         grep -Fxq "channel=stable" /opt/otbr-stable/BUILD_INFO
-        grep -Eq "^patch=openthread/0001-posix-hdlc-software-flow-control\.patch sha256=[0-9a-f]{64}$" /opt/otbr-stable/BUILD_INFO
+        grep -Eq "^otbr_commit=[0-9a-f]{40}$" /opt/otbr-stable/BUILD_INFO
+        grep -Eq "^patch=openthread/0001-posix-hdlc-software-flow-control(@[a-z0-9-]+)?\.patch sha256=[0-9a-f]{64}$" /opt/otbr-stable/BUILD_INFO
+        if command -v pip3 >/dev/null 2>&1 || command -v pip >/dev/null 2>&1; then
+            echo "Expected python3-pip to be purged from runtime image" >&2
+            exit 1
+        fi
+        python3 -c '\''import sys
+for p in ("/opt/otbr-stable/sbin/otbr-agent", "/opt/otbr-beta/sbin/otbr-agent"):
+    if b".symtab" in open(p, "rb").read():
+        sys.exit(f"Expected stripped binary, found .symtab in {p}")
+'\''
         /usr/sbin/otbr-agent --version
         help_out="$(/usr/sbin/otbr-agent --help 2>&1)"
         grep -q -- "--rest-listen-port" <<< "${help_out}"
@@ -69,6 +79,7 @@ docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
 
         for script in \
             /usr/local/lib/otbr/stage2_init.py \
+            /usr/local/lib/otbr/healthcheck.py \
             /etc/s6-overlay/scripts/*.sh \
             /etc/s6-overlay/s6-rc.d/*/run \
             /etc/s6-overlay/s6-rc.d/*/finish \
@@ -91,7 +102,7 @@ docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
         /usr/local/lib/otbr/stage2_init.py
         test "$(readlink /usr/sbin/otbr-agent)" = "/opt/otbr-beta/sbin/otbr-agent"
         grep -Fxq "channel=beta" /opt/otbr-beta/BUILD_INFO
-        grep -Eq "^patch=openthread/0001-posix-hdlc-software-flow-control\.patch sha256=[0-9a-f]{64}$" /opt/otbr-beta/BUILD_INFO
+        grep -Eq "^patch=openthread/0001-posix-hdlc-software-flow-control(@[a-z0-9-]+)?\.patch sha256=[0-9a-f]{64}$" /opt/otbr-beta/BUILD_INFO
         /usr/sbin/otbr-agent --version
         help_out="$(/usr/sbin/otbr-agent --help 2>&1)"
         grep -q -- "--rest-listen-port" <<< "${help_out}"
@@ -117,14 +128,68 @@ docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
         grep -Fxq "OTBR_WEB_LISTEN_ADDRESS=127.0.0.1" /run/otbr/config.env
         grep -Fxq "OTBR_WEB_PORT=8080" /run/otbr/config.env
         grep -Fxq "OTBR_DEVICE=/tmp/ttyOTBR" /run/otbr/config.env
+        grep -Fxq "OTBR_FLOW_CONTROL=none" /run/otbr/config.env
 
-        env -i PATH="$PATH" BACKBONE_IF=lo DEVICE=/dev/null FLOW_CONTROL=software \
+        env -i PATH="$PATH" BACKBONE_IF=lo DEVICE=/dev/null \
             /usr/local/lib/otbr/stage2_init.py
         test ! -e /etc/s6-overlay/user-bundles.d/user/contents.d/otbr-web
         test ! -e /etc/s6-overlay/user-bundles.d/user/contents.d/socat-otbr-tcp
         test ! -e /etc/s6-overlay/s6-rc.d/otbr-agent/dependencies.d/socat-otbr-tcp
         grep -Fxq "OTBR_FLOW_CONTROL=software" /run/otbr/config.env
         grep -Fxq "OTBR_UART_FLOW_PARAM='\''&uart-flow-control=software&uart-init-deassert'\''" /run/otbr/config.env
+        grep -Fxq "OTBR_TX_POWER=6" /run/otbr/config.env
+
+        env -i PATH="$PATH" BACKBONE_IF=lo DEVICE=/dev/null TX_POWER=7 \
+            /usr/local/lib/otbr/stage2_init.py
+        grep -Fxq "OTBR_TX_POWER=7" /run/otbr/config.env
+
+        python3 - <<'\''HC_PY'\''
+import socket
+import subprocess
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+state_status = [200]
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"\"leader\""
+        self.send_response(state_status[0])
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, format, *args):
+        return
+
+srv = HTTPServer(("127.0.0.1", 0), Handler)
+port = srv.server_address[1]
+t = threading.Thread(target=srv.serve_forever, daemon=True)
+t.start()
+
+sock_path = Path("/run/openthread-wpan0.sock")
+sock_path.unlink(missing_ok=True)
+us = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+us.bind(str(sock_path))
+us.listen(1)
+
+Path("/run/otbr/config.env").write_text(
+    f"OTBR_THREAD_IF=wpan0\nOTBR_REST_CHECK_HOST=127.0.0.1\nOTBR_REST_LISTEN_PORT={port}\n",
+    encoding="utf-8",
+)
+try:
+    ok_res = subprocess.run(["/usr/local/lib/otbr/healthcheck.py"], capture_output=True, text=True)
+    assert ok_res.returncode == 0, f"healthcheck expected 0, got {ok_res.returncode}: {ok_res.stderr}"
+    state_status[0] = 500
+    bad_res = subprocess.run(["/usr/local/lib/otbr/healthcheck.py"], capture_output=True, text=True)
+    assert bad_res.returncode == 1, f"healthcheck expected 1 on HTTP 500, got {bad_res.returncode}"
+finally:
+    srv.shutdown()
+    srv.server_close()
+    us.close()
+    sock_path.unlink(missing_ok=True)
+HC_PY
 
         net_sw_err="$(
             env -i PATH="$PATH" BACKBONE_IF=lo NETWORK_DEVICE="127.0.0.1:6638" FLOW_CONTROL=software \
