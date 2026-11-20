@@ -83,4 +83,22 @@ if "${apply_script}" --check-only --src-dir "${src_dir}" --patches-dir "${bad_pa
     exit 1
 fi
 
+stray_root="${tmp_dir}/stray-root-patches"
+mkdir -p "${stray_root}/ot-br-posix" "${stray_root}/openthread"
+cp "${patches_dir}/ot-br-posix/0001-first.patch" "${stray_root}/0001.patch"
+if "${apply_script}" --check-only --src-dir "${src_dir}" --patches-dir "${stray_root}" 2>"${tmp_dir}/stray_root.err"; then
+    echo "Expected stray root patch to fail" >&2
+    exit 1
+fi
+grep -Fq "0001.patch" "${tmp_dir}/stray_root.err"
+
+stray_typo="${tmp_dir}/stray-typo-patches"
+mkdir -p "${stray_typo}/otbr"
+cp "${patches_dir}/ot-br-posix/0001-first.patch" "${stray_typo}/otbr/0001.patch"
+if "${apply_script}" --check-only --src-dir "${src_dir}" --patches-dir "${stray_typo}" 2>"${tmp_dir}/stray_typo.err"; then
+    echo "Expected stray typo-dir patch to fail" >&2
+    exit 1
+fi
+grep -Fq "otbr/0001.patch" "${tmp_dir}/stray_typo.err"
+
 echo "test_apply_patches.sh PASSED"

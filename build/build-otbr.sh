@@ -3,7 +3,7 @@ set -euo pipefail
 
 install_prefix="${1:?Usage: build-otbr.sh <install_prefix>}"
 
-mv /usr/src/openthread-core-ha-config-posix.h /usr/src/ot-br-posix/third_party/openthread/repo/
+cp /usr/src/openthread-core-ha-config-posix.h /usr/src/ot-br-posix/third_party/openthread/repo/
 mkdir -p /usr/src/ot-br-posix/build
 cd /usr/src/ot-br-posix/build
 
