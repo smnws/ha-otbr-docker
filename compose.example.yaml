@@ -2,23 +2,27 @@ services:
   otbr:
     container_name: otbr
     image: ghcr.io/smnws/otbr-ha:latest
-    privileged: true
     network_mode: host
+    # Add `privileged: true` if your host blocks TUN/netfilter operations under cap_add.
     cap_add:
-      - SYS_ADMIN
       - NET_ADMIN
+      - NET_RAW
+      - IPC_LOCK
     environment:
       DEVICE: "/dev/ttyACM0"
       # NETWORK_DEVICE: "192.168.1.50:6638"
       BACKBONE_IF: "eth0"
-      FLOW_CONTROL: "0"
+      BAUDRATE: "460800"
+      FLOW_CONTROL: "1"
       FIREWALL: "1"
       NAT64: "0"
-      BAUDRATE: "1000000"
-      OTBR_LOG_LEVEL: "error"
-      BETA: "1"
-      # WEB_PORT: "8080"
+      OTBR_LOG_LEVEL: "notice"
+      BETA: "0"
+      # Bind REST and Web UI to loopback when Home Assistant runs on the same host.
+      # REST_LISTEN_ADDRESS: "127.0.0.1"
       # REST_LISTEN_PORT: "8081"
+      # WEB_LISTEN_ADDRESS: "127.0.0.1"
+      # WEB_PORT: "8080"
     devices:
       - /dev/serial/by-id/usb-YOUR_ADAPTER_ID-if00-port0:/dev/ttyACM0
       - /dev/net/tun:/dev/net/tun

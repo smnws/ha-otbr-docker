@@ -14,16 +14,33 @@ trap 'rm -rf "${tmp_dir}"' EXIT
 
 mkdir -p "${tmp_dir}/vol_data_thread" "${tmp_dir}/vol_data" "${tmp_dir}/vol_var_lib"
 
-if docker run --rm "${docker_args[@]}" "${image}" >/dev/null 2>&1; then
-    echo "Expected container to fail fast without DEVICE or NETWORK_DEVICE" >&2
-    exit 1
-fi
+run_expect_fail() {
+    local out_var="$1"
+    shift
+    local rc=0
+    local output
+    output="$(timeout 30 docker run --rm "${docker_args[@]}" "$@" 2>&1)" || rc=$?
+    if [[ "${rc}" -eq 0 ]]; then
+        echo "Expected container to fail fast, but it exited 0: $*" >&2
+        exit 1
+    fi
+    if [[ "${rc}" -eq 124 ]]; then
+        echo "Container timed out after 30s instead of failing fast: $*" >&2
+        exit 1
+    fi
+    printf -v "${out_var}" '%s' "${output}"
+}
 
-sw_err="$(docker run --rm "${docker_args[@]}" \
+missing_err=""
+run_expect_fail missing_err "${image}"
+grep -q "ERROR:" <<< "${missing_err}"
+
+sw_err=""
+run_expect_fail sw_err \
     -e DEVICE=/dev/null \
     -e BACKBONE_IF=lo \
     -e FLOW_CONTROL=software \
-    "${image}" 2>&1 || true)"
+    "${image}"
 grep -q "ERROR:" <<< "${sw_err}"
 grep -q "patches/openthread/" <<< "${sw_err}"
 
@@ -39,7 +56,28 @@ docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
         /usr/sbin/otbr-agent --version
         help_out="$(/usr/sbin/otbr-agent --help 2>&1)"
         grep -q -- "--rest-listen-port" <<< "${help_out}"
-        python3 /usr/local/bin/migrate_otbr_settings.py --help >/dev/null
+
+        for bin in /usr/sbin/otbr-agent /usr/sbin/otbr-web /usr/sbin/ot-ctl; do
+            if ldd "${bin}" | grep -q "not found"; then
+                echo "Missing shared library for ${bin}:" >&2
+                ldd "${bin}" >&2
+                exit 1
+            fi
+        done
+
+        for script in \
+            /usr/local/lib/otbr/stage2_init.py \
+            /etc/s6-overlay/scripts/*.sh \
+            /etc/s6-overlay/s6-rc.d/*/run \
+            /etc/s6-overlay/s6-rc.d/*/finish \
+            /etc/s6-overlay/s6-rc.d/*/data/check; do
+            test -x "${script}"
+        done
+
+        migrate_help="$(python3 /usr/local/bin/migrate_otbr_settings.py --help 2>&1)"
+        for flag in --adapter --baudrate --flow-control --data-dir; do
+            grep -q -- "${flag}" <<< "${migrate_help}"
+        done
     '
 
 docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
@@ -54,16 +92,25 @@ docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
         /usr/sbin/otbr-agent --version
         help_out="$(/usr/sbin/otbr-agent --help 2>&1)"
         grep -q -- "--rest-listen-port" <<< "${help_out}"
+        for bin in /usr/sbin/otbr-agent /usr/sbin/otbr-web /usr/sbin/ot-ctl; do
+            if ldd "${bin}" | grep -q "not found"; then
+                echo "Missing shared library for ${bin}:" >&2
+                ldd "${bin}" >&2
+                exit 1
+            fi
+        done
     '
 
 docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
     "${image}" -c '
         set -euo pipefail
-        env -i PATH="$PATH" BACKBONE_IF=lo NETWORK_DEVICE="127.0.0.1:6638" WEB_PORT=8080 \
+        env -i PATH="$PATH" BACKBONE_IF=lo NETWORK_DEVICE="127.0.0.1:6638" \
+            WEB_LISTEN_ADDRESS=127.0.0.1 WEB_PORT=8080 \
             /usr/local/lib/otbr/stage2_init.py
         test -f /etc/s6-overlay/user-bundles.d/user/contents.d/otbr-web
         test -f /etc/s6-overlay/user-bundles.d/user/contents.d/socat-otbr-tcp
         test -f /etc/s6-overlay/s6-rc.d/otbr-agent/dependencies.d/socat-otbr-tcp
+        grep -Fxq "OTBR_WEB_LISTEN_ADDRESS=127.0.0.1" /run/otbr/config.env
         grep -Fxq "OTBR_WEB_PORT=8080" /run/otbr/config.env
         grep -Fxq "OTBR_DEVICE=/tmp/ttyOTBR" /run/otbr/config.env
 
@@ -112,11 +159,12 @@ docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
         grep -Fxq "OTBR_DATA_DIR=/var/lib/thread" /run/otbr/config.env
     '
 
-dual_err="$(docker run --rm "${docker_args[@]}" \
+dual_err=""
+run_expect_fail dual_err \
     -v "${tmp_dir}/vol_data_thread:/data/thread" \
     -v "${tmp_dir}/vol_var_lib:/var/lib/thread" \
     -e DEVICE=/dev/null -e BACKBONE_IF=lo \
-    "${image}" 2>&1 || true)"
-grep -q "Both /var/lib/thread and /data/thread are mounted" <<< "${dual_err}"
+    "${image}"
+grep -q "Both /var/lib/thread and /data" <<< "${dual_err}"
 
 echo "smoke_container.sh PASSED for ${image}"

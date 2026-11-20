@@ -19,7 +19,10 @@ jobs:
           python-version: "3.13"
 
       - name: Install test dependencies
-        run: pip install --no-cache-dir pytest
+        run: pip install --no-cache-dir pytest ruff
+
+      - name: Run ruff
+        run: ruff check scripts/ rootfs/usr/local/lib/otbr/ tests/
 
       - name: Check upstream drift
         run: python3 scripts/upstream_pins.py check
