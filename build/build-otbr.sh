@@ -10,6 +10,7 @@ cd /usr/src/ot-br-posix/build
 cmake \
     -GNinja \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_FLAGS=-Wno-error=array-bounds \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     .. \

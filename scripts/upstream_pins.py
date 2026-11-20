@@ -23,7 +23,12 @@ PIN_NAMES = (
     "UNIVERSAL_SILABS_FLASHER_VERSION",
 )
 ROOTFS_EXCLUDED = frozenset({"usr/local/bin/migrate_otbr_settings.py"})
-LOCAL_EXTRA_CMAKE_FLAGS = frozenset({"-DCMAKE_BUILD_TYPE=Release"})
+LOCAL_EXTRA_CMAKE_FLAGS = frozenset(
+    {
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_C_FLAGS=-Wno-error=array-bounds",
+    }
+)
 OT_BR_POSIX_REPO = "https://github.com/openthread/ot-br-posix.git"
 
 _APT_VALUE_FLAGS = frozenset({"-t", "--target-release", "-o", "--option", "-c", "--config-file"})
