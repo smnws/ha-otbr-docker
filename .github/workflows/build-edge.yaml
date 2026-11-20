@@ -43,11 +43,20 @@ jobs:
           if [[ "${OTBR_REF}" =~ ^[0-9a-f]{40}$ ]]; then
             sha="${OTBR_REF}"
           else
-            sha="$(
-              git ls-remote https://github.com/openthread/ot-br-posix.git \
-                "refs/heads/${OTBR_REF}" "refs/tags/${OTBR_REF}^{}" "refs/tags/${OTBR_REF}" "${OTBR_REF}" \
-                | awk 'NR == 1 { print $1 }'
-            )"
+            if [[ "${OTBR_REF}" == refs/* ]]; then
+              candidates=("${OTBR_REF}^{}" "${OTBR_REF}")
+            else
+              candidates=("refs/heads/${OTBR_REF}" "refs/tags/${OTBR_REF}^{}" "refs/tags/${OTBR_REF}")
+            fi
+
+            ls_out="$(git ls-remote https://github.com/openthread/ot-br-posix.git "${candidates[@]}")"
+            sha=""
+            for cand in "${candidates[@]}"; do
+              sha="$(awk -v ref="${cand}" '$2 == ref { print $1; exit }' <<< "${ls_out}")"
+              if [[ -n "${sha}" ]]; then
+                break
+              fi
+            done
           fi
 
           if [[ ! "${sha}" =~ ^[0-9a-f]{40}$ ]]; then
