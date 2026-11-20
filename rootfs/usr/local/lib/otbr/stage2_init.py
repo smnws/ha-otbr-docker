@@ -5,20 +5,20 @@ from __future__ import annotations
 
 import os
 import re
-import socket
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import (  # noqa: E402
+from config import (
     Channel,
     ConfigError,
     HostProbe,
     NetworkTransport,
     OtbrConfig,
     StorageAction,
+    VarLibState,
     parse_config,
     parse_mountpoints,
     render_config_env,
@@ -37,6 +37,9 @@ class SystemPaths:
     run_config_env: Path = Path("/run/otbr/config.env")
     s6_user_contents: Path = Path("/etc/s6-overlay/user-bundles.d/user/contents.d")
     s6_agent_deps: Path = Path("/etc/s6-overlay/s6-rc.d/otbr-agent/dependencies.d")
+
+    def channel_dir(self, channel: Channel) -> Path:
+        return self.opt_root / f"otbr-{channel.value}"
 
 
 def _detect_default_route_interface() -> str | None:
@@ -57,14 +60,30 @@ def _detect_default_route_interface() -> str | None:
     return None
 
 
+def _inspect_var_lib_thread(path: Path) -> VarLibState:
+    if path.is_symlink():
+        return VarLibState.SYMLINK
+    if not path.exists():
+        return VarLibState.MISSING
+    if not path.is_dir():
+        return VarLibState.OTHER_FILE
+    return VarLibState.NONEMPTY_DIR if any(path.iterdir()) else VarLibState.EMPTY_DIR
+
+
 def collect_host_probe(
     env: dict[str, str],
     paths: SystemPaths = SystemPaths(),
+    default_route_detector: Callable[[], str | None] = _detect_default_route_interface,
 ) -> HostProbe:
     mountinfo_text = (
         paths.mountinfo.read_text(encoding="utf-8") if paths.mountinfo.is_file() else ""
     )
-    mountpoints = parse_mountpoints(mountinfo_text)
+    mountpoints_set = set(parse_mountpoints(mountinfo_text))
+    if paths.var_lib_thread in mountpoints_set or Path("/var/lib/thread") in mountpoints_set:
+        mountpoints_set.add(Path("/var/lib/thread"))
+    if paths.data_thread in mountpoints_set or Path("/data/thread") in mountpoints_set:
+        mountpoints_set.add(Path("/data/thread"))
+    mountpoints = frozenset(mountpoints_set)
 
     net_interfaces = (
         frozenset(p.name for p in paths.sys_class_net.iterdir())
@@ -85,27 +104,18 @@ def collect_host_probe(
 
     available_channels: set[Channel] = set()
     for ch in Channel:
-        real_bin = paths.opt_root / f"otbr-{ch.value}" / "sbin" / "otbr-agent"
+        real_bin = paths.channel_dir(ch) / "sbin" / "otbr-agent"
         if real_bin.is_file() and os.access(real_bin, os.X_OK):
             available_channels.add(ch)
 
-    vlt = paths.var_lib_thread
-    is_nonempty_unmounted = (
-        vlt.is_dir()
-        and not vlt.is_symlink()
-        and Path("/var/lib/thread") not in mountpoints
-        and any(vlt.iterdir())
-    )
-
     return HostProbe(
-        hostname=socket.gethostname(),
         net_interfaces=net_interfaces,
-        default_route_interface=_detect_default_route_interface(),
+        default_route_interface=default_route_detector(),
         ipv6_forwarding_enabled=ipv6_forwarding,
         mountpoints=mountpoints,
         existing_paths=frozenset(existing_paths),
         available_channels=frozenset(available_channels),
-        var_lib_thread_is_nonempty_dir=is_nonempty_unmounted,
+        var_lib_thread_state=_inspect_var_lib_thread(paths.var_lib_thread),
     )
 
 
@@ -118,26 +128,17 @@ def _atomic_symlink(target: Path, link_path: Path) -> None:
 
 
 def _wire_storage(cfg: OtbrConfig, paths: SystemPaths) -> None:
-    if cfg.storage.action is StorageAction.USE_VAR_LIB_DIRECTLY:
+    if cfg.storage is StorageAction.USE_VAR_LIB_DIRECTLY:
         paths.var_lib_thread.mkdir(parents=True, exist_ok=True)
         return
 
     paths.data_thread.mkdir(parents=True, exist_ok=True)
     vlt = paths.var_lib_thread
-    target = paths.data_thread if paths.data_thread != Path("/data/thread") else cfg.storage.symlink_target
-    assert target is not None
-
-    if vlt.is_symlink():
-        if Path(os.readlink(vlt)) == target:
-            return
-        vlt.unlink()
-    elif vlt.exists():
-        if not vlt.is_dir():
-            raise ConfigError(f"{vlt} exists and is not a directory or symlink.")
+    if vlt.is_symlink() and Path(os.readlink(vlt)) == paths.data_thread:
+        return
+    if not vlt.is_symlink() and vlt.is_dir():
         vlt.rmdir()
-
-    vlt.parent.mkdir(parents=True, exist_ok=True)
-    os.symlink(target, vlt)
+    _atomic_symlink(paths.data_thread, vlt)
 
 
 def _set_marker(path: Path, enabled: bool) -> None:
@@ -150,7 +151,7 @@ def _set_marker(path: Path, enabled: bool) -> None:
 
 def apply_wiring(cfg: OtbrConfig, paths: SystemPaths = SystemPaths()) -> None:
     """Apply channel symlinks, storage layout, s6 bundles, and config.env idempotently."""
-    channel_sbin = paths.opt_root / f"otbr-{cfg.channel.value}" / "sbin"
+    channel_sbin = paths.channel_dir(cfg.channel) / "sbin"
     for binary in ("otbr-agent", "otbr-web", "ot-ctl"):
         _atomic_symlink(channel_sbin / binary, paths.usr_sbin / binary)
 
@@ -170,7 +171,7 @@ def apply_wiring(cfg: OtbrConfig, paths: SystemPaths = SystemPaths()) -> None:
 
 
 def print_banner(cfg: OtbrConfig, paths: SystemPaths = SystemPaths()) -> None:
-    build_info_path = paths.opt_root / f"otbr-{cfg.channel.value}" / "BUILD_INFO"
+    build_info_path = paths.channel_dir(cfg.channel) / "BUILD_INFO"
     print(f"INFO: Starting otbr-ha (channel={cfg.channel.value})")
     if build_info_path.is_file():
         for line in build_info_path.read_text(encoding="utf-8").splitlines():
@@ -182,7 +183,9 @@ def print_banner(cfg: OtbrConfig, paths: SystemPaths = SystemPaths()) -> None:
     else:
         transport_desc = str(cfg.transport.device_path)
 
-    web_desc = str(cfg.web_port) if cfg.web_port is not None else "disabled"
+    web_desc = (
+        f"{cfg.web_listen_address}:{cfg.web_port}" if cfg.web_port is not None else "disabled"
+    )
     print(
         "INFO: Effective config: "
         f"transport={transport_desc} baudrate={cfg.baudrate} "
@@ -190,7 +193,7 @@ def print_banner(cfg: OtbrConfig, paths: SystemPaths = SystemPaths()) -> None:
         f"thread_if={cfg.thread_if} firewall={int(cfg.firewall)} nat64={int(cfg.nat64)} "
         f"log_level={cfg.log_level.name.lower()} "
         f"rest={cfg.rest_api.listen_address}:{cfg.rest_api.port} "
-        f"web_port={web_desc} data_dir={cfg.storage.data_dir}"
+        f"web={web_desc} data_dir={cfg.storage.data_dir}"
     )
     for warning in cfg.warnings:
         print(f"WARNING: {warning}", file=sys.stderr)
@@ -200,12 +203,17 @@ def run_stage2(
     env: dict[str, str],
     paths: SystemPaths = SystemPaths(),
     host: HostProbe | None = None,
+    default_route_detector: Callable[[], str | None] = _detect_default_route_interface,
 ) -> int:
-    probe = host if host is not None else collect_host_probe(env, paths)
     try:
+        probe = (
+            host
+            if host is not None
+            else collect_host_probe(env, paths, default_route_detector=default_route_detector)
+        )
         cfg = parse_config(env, probe)
         apply_wiring(cfg, paths)
-    except ConfigError as exc:
+    except (ConfigError, OSError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 

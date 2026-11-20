@@ -28,7 +28,9 @@ if [[ "${OTBR_NAT64}" == "1" ]]; then
     otctl dns server upstream enable
 fi
 
-mdns_localhostname="$(hostname)-otbr"
+short_host="$(hostname)"
+short_host="${short_host%%.*}"
+mdns_localhostname="${short_host:0:58}-otbr"
 log_info "Setting OpenThread mDNS local hostname to ${mdns_localhostname}."
 otctl mdns localhostname "${mdns_localhostname}"
 otctl mdns enable

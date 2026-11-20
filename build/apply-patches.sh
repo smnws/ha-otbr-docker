@@ -39,6 +39,39 @@ fi
 
 shopt -s nullglob
 
+if [[ "${patches_dir}" != "/" ]]; then
+    patches_dir="${patches_dir%/}"
+fi
+
+check_stray_patches() {
+    if [[ ! -d "${patches_dir}" ]]; then
+        return 0
+    fi
+    local stray=()
+    local p rel
+    while IFS= read -r -d '' p; do
+        rel="${p#"${patches_dir}/"}"
+        case "${rel}" in
+            ot-br-posix/*.patch|openthread/*.patch)
+                if [[ "${rel}" == */*/* ]]; then
+                    stray+=("${rel}")
+                fi
+                ;;
+            *)
+                stray+=("${rel}")
+                ;;
+        esac
+    done < <(find "${patches_dir}" -type f -name '*.patch' -print0 | LC_ALL=C sort -z)
+
+    if [[ ${#stray[@]} -gt 0 ]]; then
+        echo "ERROR: Found stray *.patch file(s) outside patches/ot-br-posix/ and patches/openthread/:" >&2
+        printf '  %s\n' "${stray[@]}" >&2
+        exit 1
+    fi
+}
+
+check_stray_patches
+
 applied_lines=()
 
 apply_repo_patches() {
@@ -66,8 +99,7 @@ apply_repo_patches() {
 
     local patch
     for patch in "${sorted_patches[@]}"; do
-        echo "Checking patch ${repo_name}/$(basename "${patch}") against ${target_dir}"
-        git -C "${target_dir}" apply --check "${patch}"
+        echo "Applying patch ${repo_name}/$(basename "${patch}") to ${target_dir}"
         git -C "${target_dir}" apply --verbose "${patch}"
         local digest
         digest="$(sha256sum "${patch}" | awk '{print $1}')"

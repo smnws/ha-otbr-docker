@@ -29,11 +29,19 @@ case "$1" in
     create)
         touch "${MOCK_STATE}/ipsets/$3"
         ;;
+    flush)
+        [[ -f "${MOCK_STATE}/ipsets/$2" ]]
+        : > "${MOCK_STATE}/ipsets/$2"
+        ;;
     list)
         [[ -f "${MOCK_STATE}/ipsets/$3" ]]
         ;;
     destroy)
         rm -f "${MOCK_STATE}/ipsets/$2"
+        ;;
+    *)
+        echo "Unsupported ipset command: $*" >&2
+        exit 98
         ;;
 esac
 EOF
@@ -60,6 +68,10 @@ op="\${1:-}"
 shift
 case "\${op}" in
     -N)
+        if [[ -f "\${MOCK_STATE}/${chain_dir}/\$1" ]]; then
+            echo "Chain already exists: \$1" >&2
+            exit 1
+        fi
         : > "\${MOCK_STATE}/${chain_dir}/\$1"
         ;;
     -L)
@@ -129,12 +141,18 @@ export OTBR_BACKBONE_IF="eth0"
 export OTBR_FIREWALL="1"
 export OTBR_NAT64="0"
 
-otbr_firewall_apply
+echo "stale-entry" > "${state_dir}/ipsets/otbr-ingress-deny-src"
+MOCK_IPSET_FAIL_DESTROY=1 otbr_firewall_apply 2> "${tmp_dir}/apply_warn.log"
+grep -q "Timed out destroying ipset otbr-ingress-deny-src" "${tmp_dir}/apply_warn.log"
+test ! -s "${state_dir}/ipsets/otbr-ingress-deny-src"
 
 for s in otbr-ingress-deny-src otbr-ingress-deny-src-swap otbr-ingress-allow-dst otbr-ingress-allow-dst-swap; do
     test -f "${state_dir}/ipsets/${s}"
+    grep -Fxq "ipset flush ${s}" "${tmp_dir}/calls.log"
 done
 test "$(wc -l < "${state_dir}/ip6_chains/OTBR_FORWARD_INGRESS")" -eq 5
+grep -Fq -- "-m set --match-set otbr-ingress-deny-src src -j DROP" "${state_dir}/ip6_chains/OTBR_FORWARD_INGRESS"
+grep -Fq -- "-m set --match-set otbr-ingress-allow-dst dst -j ACCEPT" "${state_dir}/ip6_chains/OTBR_FORWARD_INGRESS"
 test "$(wc -l < "${state_dir}/ip6_chains/OTBR_FORWARD_EGRESS")" -eq 1
 test "$(wc -l < "${state_dir}/ip6_jumps")" -eq 2
 test ! -f "${state_dir}/ip4_chains/OTBR_FORWARD_NAT64"
@@ -149,8 +167,10 @@ otbr_firewall_apply
 test "$(wc -l < "${state_dir}/ip6_chains/OTBR_FORWARD_INGRESS")" -eq 1
 test -f "${state_dir}/ip4_chains/OTBR_FORWARD_NAT64"
 test "$(wc -l < "${state_dir}/ip4_chains/OTBR_FORWARD_NAT64")" -eq 2
+grep -Fq -- "-m conntrack --ctstate ESTABLISHED,RELATED -i eth0 -o wpan0 -j ACCEPT" "${state_dir}/ip4_chains/OTBR_FORWARD_NAT64"
 test "$(wc -l < "${state_dir}/mangle")" -eq 1
 test "$(wc -l < "${state_dir}/nat")" -eq 1
+grep -Fq -- "-m mark --mark 0x1001 -j MASQUERADE" "${state_dir}/nat"
 
 otbr_firewall_teardown
 otbr_firewall_teardown

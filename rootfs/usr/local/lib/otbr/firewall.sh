@@ -23,6 +23,31 @@ _iptables() {
     "${IPTABLES_BIN:-iptables}" -w "$@"
 }
 
+_delete_rule_all() {
+    local tool="$1"
+    shift
+    if [[ "${1:-}" == "-t" ]]; then
+        local table="$2"
+        shift 2
+        while "${tool}" -t "${table}" -C "$@" 2>/dev/null; do
+            "${tool}" -t "${table}" -D "$@" || break
+        done
+    else
+        while "${tool}" -C "$@" 2>/dev/null; do
+            "${tool}" -D "$@" || break
+        done
+    fi
+}
+
+_drop_chain() {
+    local tool="$1"
+    local chain="$2"
+    if "${tool}" -L "${chain}" -n >/dev/null 2>&1; then
+        "${tool}" -F "${chain}" || true
+        "${tool}" -X "${chain}" || true
+    fi
+}
+
 _ipset_destroy_if_exist() {
     local set_name="$1"
     local attempt
@@ -43,45 +68,22 @@ _ipset_destroy_if_exist() {
 otbr_firewall_teardown() {
     local thread_if="${OTBR_THREAD_IF:-wpan0}"
 
-    while _ip6tables -C FORWARD -o "${thread_if}" -j "${_OTBR_FORWARD_INGRESS_CHAIN}" 2>/dev/null; do
-        _ip6tables -D FORWARD -o "${thread_if}" -j "${_OTBR_FORWARD_INGRESS_CHAIN}" || break
-    done
-
-    if _ip6tables -L "${_OTBR_FORWARD_INGRESS_CHAIN}" -n >/dev/null 2>&1; then
-        _ip6tables -F "${_OTBR_FORWARD_INGRESS_CHAIN}"
-        _ip6tables -X "${_OTBR_FORWARD_INGRESS_CHAIN}"
-    fi
+    _delete_rule_all _ip6tables FORWARD -o "${thread_if}" -j "${_OTBR_FORWARD_INGRESS_CHAIN}"
+    _drop_chain _ip6tables "${_OTBR_FORWARD_INGRESS_CHAIN}"
 
     local set_name
     for set_name in "${_OTBR_IPSETS[@]}"; do
         _ipset_destroy_if_exist "${set_name}"
     done
 
-    while _ip6tables -C FORWARD -i "${thread_if}" -j "${_OTBR_FORWARD_EGRESS_CHAIN}" 2>/dev/null; do
-        _ip6tables -D FORWARD -i "${thread_if}" -j "${_OTBR_FORWARD_EGRESS_CHAIN}" || break
-    done
+    _delete_rule_all _ip6tables FORWARD -i "${thread_if}" -j "${_OTBR_FORWARD_EGRESS_CHAIN}"
+    _drop_chain _ip6tables "${_OTBR_FORWARD_EGRESS_CHAIN}"
 
-    if _ip6tables -L "${_OTBR_FORWARD_EGRESS_CHAIN}" -n >/dev/null 2>&1; then
-        _ip6tables -F "${_OTBR_FORWARD_EGRESS_CHAIN}"
-        _ip6tables -X "${_OTBR_FORWARD_EGRESS_CHAIN}"
-    fi
+    _delete_rule_all _iptables FORWARD -j "${_OTBR_FORWARD_NAT64_CHAIN}"
+    _drop_chain _iptables "${_OTBR_FORWARD_NAT64_CHAIN}"
 
-    while _iptables -C FORWARD -j "${_OTBR_FORWARD_NAT64_CHAIN}" 2>/dev/null; do
-        _iptables -D FORWARD -j "${_OTBR_FORWARD_NAT64_CHAIN}" || break
-    done
-
-    if _iptables -L "${_OTBR_FORWARD_NAT64_CHAIN}" -n >/dev/null 2>&1; then
-        _iptables -F "${_OTBR_FORWARD_NAT64_CHAIN}"
-        _iptables -X "${_OTBR_FORWARD_NAT64_CHAIN}"
-    fi
-
-    while _iptables -t mangle -C PREROUTING -i "${thread_if}" -j MARK --set-mark "${_OTBR_FW_MARK}" 2>/dev/null; do
-        _iptables -t mangle -D PREROUTING -i "${thread_if}" -j MARK --set-mark "${_OTBR_FW_MARK}" || break
-    done
-
-    while _iptables -t nat -C POSTROUTING -m mark --mark "${_OTBR_FW_MARK}" -j MASQUERADE 2>/dev/null; do
-        _iptables -t nat -D POSTROUTING -m mark --mark "${_OTBR_FW_MARK}" -j MASQUERADE || break
-    done
+    _delete_rule_all _iptables -t mangle PREROUTING -i "${thread_if}" -j MARK --set-mark "${_OTBR_FW_MARK}"
+    _delete_rule_all _iptables -t nat POSTROUTING -m mark --mark "${_OTBR_FW_MARK}" -j MASQUERADE
 }
 
 otbr_firewall_apply() {
@@ -96,6 +98,7 @@ otbr_firewall_apply() {
     local set_name
     for set_name in "${_OTBR_IPSETS[@]}"; do
         _ipset create -exist "${set_name}" hash:net family inet6
+        _ipset flush "${set_name}"
     done
 
     _ip6tables -N "${_OTBR_FORWARD_INGRESS_CHAIN}"

@@ -1,2 +1,7 @@
-#!/bin/sh
-test -c /tmp/ttyOTBR
+#!/usr/bin/env bash
+set -euo pipefail
+
+# shellcheck source=rootfs/usr/local/lib/otbr/common.sh
+source /usr/local/lib/otbr/common.sh
+load_otbr_config
+test -c "${OTBR_DEVICE}"

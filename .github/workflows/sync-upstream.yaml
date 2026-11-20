@@ -9,18 +9,22 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: true
+
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Update upstream submodule and sync pins
         id: sync
@@ -29,21 +33,43 @@ jobs:
           old_sha="$(git -C upstream rev-parse --short HEAD)"
           git submodule update --remote upstream
           new_sha="$(git -C upstream rev-parse --short HEAD)"
+
+          if [[ "${old_sha}" == "${new_sha}" ]]; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            echo "Upstream submodule already at ${new_sha}; nothing to sync."
+            exit 0
+          fi
+
           python3 scripts/upstream_pins.py sync
 
+          diff_file="$(mktemp)"
+          trap 'rm -f "${diff_file}"' EXIT
+          python3 scripts/upstream_pins.py rootfs-diff > "${diff_file}" || true
+
+          diff_size="$(wc -c < "${diff_file}")"
+          diff_delim="EOF_$(openssl rand -hex 16)"
+          drift_delim="EOF_$(openssl rand -hex 16)"
+
           {
+            echo "changed=true"
             echo "old_sha=${old_sha}"
             echo "new_sha=${new_sha}"
-            echo "rootfs_diff<<EOF_ROOTFS_DIFF"
-            python3 scripts/upstream_pins.py rootfs-diff || true
-            echo "EOF_ROOTFS_DIFF"
-            echo "drift_report<<EOF_DRIFT_REPORT"
+            echo "rootfs_diff<<${diff_delim}"
+            if [[ "${diff_size}" -gt 40000 ]]; then
+              head -c 40000 "${diff_file}"
+              printf '\n... (truncated: %s bytes total; run python3 scripts/upstream_pins.py rootfs-diff locally for full diff)\n' "${diff_size}"
+            else
+              cat "${diff_file}"
+            fi
+            echo "${diff_delim}"
+            echo "drift_report<<${drift_delim}"
             python3 scripts/upstream_pins.py check 2>&1 || true
-            echo "EOF_DRIFT_REPORT"
+            echo "${drift_delim}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v7
+        if: steps.sync.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: sync/upstream
           commit-message: "chore: sync upstream app-openthread-border-router (${{ steps.sync.outputs.new_sha }})"

@@ -1,0 +1,53 @@
+name: Verify
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install test dependencies
+        run: pip install --no-cache-dir pytest ruff
+
+      - name: Run ruff
+        run: ruff check scripts/ rootfs/usr/local/lib/otbr/ tests/
+
+      - name: Check upstream drift
+        run: python3 scripts/upstream_pins.py check
+
+      - name: Dry-run patches against pinned commits
+        run: python3 scripts/upstream_pins.py patch-check
+
+      - name: Run shellcheck
+        run: |
+          shellcheck -x \
+            build/*.sh \
+            rootfs/usr/local/lib/otbr/*.sh \
+            rootfs/etc/s6-overlay/scripts/*.sh \
+            rootfs/etc/s6-overlay/s6-rc.d/*/run \
+            rootfs/etc/s6-overlay/s6-rc.d/*/finish \
+            rootfs/etc/s6-overlay/s6-rc.d/*/data/check \
+            tests/*.sh
+
+      - name: Run hadolint
+        uses: hadolint/hadolint-action@v3.5.0
+        with:
+          dockerfile: Dockerfile
+
+      - name: Run unit tests
+        run: |
+          pytest -v tests/
+          ./tests/test_firewall.sh
+          ./tests/test_apply_patches.sh
