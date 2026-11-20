@@ -106,4 +106,37 @@ if "${apply_script}" --check-only --src-dir "${src_dir}" --patches-dir "${stray_
 fi
 grep -Fq "otbr/0001.patch" "${tmp_dir}/stray_typo.err"
 
+variant_src="${tmp_dir}/variant-src"
+variant_ot="${variant_src}/third_party/openthread/repo"
+init_git_repo "${variant_src}" "otbr.txt"
+init_git_repo "${variant_ot}" "hdlc.cpp"
+
+variant_patches="${tmp_dir}/variant-patches"
+mkdir -p "${variant_patches}/ot-br-posix" "${variant_patches}/openthread"
+
+echo "v1-change" >> "${variant_ot}/hdlc.cpp"
+git -C "${variant_ot}" diff > "${variant_patches}/openthread/0001-fc.patch"
+git -C "${variant_ot}" checkout -- hdlc.cpp
+
+echo "other-base" > "${variant_ot}/hdlc.cpp"
+git -C "${variant_ot}" add hdlc.cpp
+git -C "${variant_ot}" commit -q -m "refactor"
+echo "v2-change" >> "${variant_ot}/hdlc.cpp"
+git -C "${variant_ot}" diff > "${variant_patches}/openthread/0001-fc@v2.patch"
+git -C "${variant_ot}" checkout -- hdlc.cpp
+
+"${apply_script}" --check-only --src-dir "${variant_src}" --patches-dir "${variant_patches}"
+prefix_variant="${tmp_dir}/opt-variant"
+"${apply_script}" --src-dir "${variant_src}" --patches-dir "${variant_patches}" beta "${prefix_variant}" "main"
+grep -Fxq "v2-change" "${variant_ot}/hdlc.cpp"
+grep -Eq "^patch=openthread/0001-fc@v2\.patch sha256=[0-9a-f]{64}$" "${prefix_variant}/BUILD_INFO"
+
+cp "${variant_patches}/openthread/0001-fc@v2.patch" "${variant_patches}/openthread/0001-fc@dup.patch"
+git -C "${variant_ot}" checkout -- hdlc.cpp
+if "${apply_script}" --check-only --src-dir "${variant_src}" --patches-dir "${variant_patches}" 2>"${tmp_dir}/ambig.err"; then
+    echo "Expected ambiguous variant slot to fail" >&2
+    exit 1
+fi
+grep -Fq "Ambiguous patch slot" "${tmp_dir}/ambig.err"
+
 echo "test_apply_patches.sh PASSED"

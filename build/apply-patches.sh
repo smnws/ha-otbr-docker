@@ -39,7 +39,9 @@ fi
 
 shopt -s nullglob
 
-if [[ "${patches_dir}" != "/" ]]; then
+if [[ -d "${patches_dir}" ]]; then
+    patches_dir="$(cd "${patches_dir}" && pwd)"
+elif [[ "${patches_dir}" != "/" ]]; then
     patches_dir="${patches_dir%/}"
 fi
 
@@ -91,14 +93,59 @@ apply_repo_patches() {
     local sorted_patches=()
     mapfile -t sorted_patches < <(LC_ALL=C printf '%s\n' "${raw_patches[@]}" | LC_ALL=C sort)
 
+    local -A slot_seen=()
+    local -A slot_files=()
+    local slots=()
+    local patch base slot
+    for patch in "${sorted_patches[@]}"; do
+        base="$(basename "${patch}" .patch)"
+        slot="${base%%@*}"
+        if [[ -z "${slot_seen[${slot}]:-}" ]]; then
+            slot_seen["${slot}"]=1
+            slots+=("${slot}")
+            slot_files["${slot}"]="${patch}"
+        else
+            slot_files["${slot}"]+=$'\n'"${patch}"
+        fi
+    done
+
+    local selected_patches=()
+    local candidates=()
+    local candidate matches=()
+    for slot in "${slots[@]}"; do
+        mapfile -t candidates <<< "${slot_files[${slot}]}"
+        if [[ ${#candidates[@]} -eq 1 ]]; then
+            selected_patches+=("${candidates[0]}")
+            continue
+        fi
+
+        matches=()
+        for candidate in "${candidates[@]}"; do
+            if git -C "${target_dir}" apply --check "${candidate}" >/dev/null 2>&1; then
+                matches+=("${candidate}")
+            fi
+        done
+
+        if [[ ${#matches[@]} -eq 0 ]]; then
+            echo "ERROR: No patch variant in slot '${repo_name}/${slot}' applies cleanly to ${target_dir}:" >&2
+            printf '  %s\n' "${candidates[@]}" >&2
+            exit 1
+        fi
+        if [[ ${#matches[@]} -gt 1 ]]; then
+            echo "ERROR: Ambiguous patch slot '${repo_name}/${slot}': multiple variants apply cleanly:" >&2
+            printf '  %s\n' "${matches[@]}" >&2
+            exit 1
+        fi
+        selected_patches+=("${matches[0]}")
+    done
+
     if [[ "${check_only}" -eq 1 ]]; then
-        echo "Checking ${#sorted_patches[@]} patch(es) for ${repo_name} against ${target_dir}"
-        git -C "${target_dir}" apply --check "${sorted_patches[@]}"
+        echo "Checking ${#selected_patches[@]} patch(es) for ${repo_name} against ${target_dir}"
+        git -C "${target_dir}" apply --check "${selected_patches[@]}"
         return 0
     fi
 
-    local patch
-    for patch in "${sorted_patches[@]}"; do
+    for patch in "${selected_patches[@]}"; do
         echo "Applying patch ${repo_name}/$(basename "${patch}") to ${target_dir}"
         git -C "${target_dir}" apply --verbose "${patch}"
         local digest

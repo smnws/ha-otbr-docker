@@ -54,7 +54,7 @@ docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
         test "$(readlink /usr/sbin/otbr-agent)" = "/opt/otbr-stable/sbin/otbr-agent"
         grep -Fxq "channel=stable" /opt/otbr-stable/BUILD_INFO
         grep -Eq "^otbr_commit=[0-9a-f]{40}$" /opt/otbr-stable/BUILD_INFO
-        grep -Eq "^patch=openthread/0001-posix-hdlc-software-flow-control\.patch sha256=[0-9a-f]{64}$" /opt/otbr-stable/BUILD_INFO
+        grep -Eq "^patch=openthread/0001-posix-hdlc-software-flow-control(@[a-z0-9-]+)?\.patch sha256=[0-9a-f]{64}$" /opt/otbr-stable/BUILD_INFO
         if command -v pip3 >/dev/null 2>&1 || command -v pip >/dev/null 2>&1; then
             echo "Expected python3-pip to be purged from runtime image" >&2
             exit 1
@@ -102,7 +102,7 @@ docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
         /usr/local/lib/otbr/stage2_init.py
         test "$(readlink /usr/sbin/otbr-agent)" = "/opt/otbr-beta/sbin/otbr-agent"
         grep -Fxq "channel=beta" /opt/otbr-beta/BUILD_INFO
-        grep -Eq "^patch=openthread/0001-posix-hdlc-software-flow-control\.patch sha256=[0-9a-f]{64}$" /opt/otbr-beta/BUILD_INFO
+        grep -Eq "^patch=openthread/0001-posix-hdlc-software-flow-control(@[a-z0-9-]+)?\.patch sha256=[0-9a-f]{64}$" /opt/otbr-beta/BUILD_INFO
         /usr/sbin/otbr-agent --version
         help_out="$(/usr/sbin/otbr-agent --help 2>&1)"
         grep -q -- "--rest-listen-port" <<< "${help_out}"
