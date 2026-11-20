@@ -68,7 +68,7 @@ If Home Assistant runs on the same host, set `REST_LISTEN_ADDRESS=127.0.0.1` and
 | `NETWORK_DEVICE` | unset | TCP RCP endpoint as `host:port` or `[ipv6]:port`; overrides `DEVICE` and starts `socat` on `/tmp/ttyOTBR` |
 | `BACKBONE_IF` | default route interface | Host network interface used for Thread border routing and TREL |
 | `BAUDRATE` | `460800` | Serial baudrate (`57600`, `115200`, `230400`, `460800`, `921600`, or `1000000`) |
-| `FLOW_CONTROL` | `1` | `0` (`none`) or `1` (`hardware`); `software` requires adding an OpenThread HDLC patch |
+| `FLOW_CONTROL` | `1` | `0` (`none`), `1` (`hardware`), or `software` (XON/XOFF, requires RCP firmware with software flow control) |
 | `FIREWALL` | `1` | `1` to enforce `ip6tables` and `ipset` Thread ingress filtering, `0` to allow forwarding |
 | `NAT64` | `0` | `1` to enable OpenThread NAT64, upstream DNS, and `iptables` masquerading |
 | `OTBR_LOG_LEVEL` | `notice` | `emergency`, `alert`, `critical`, `error`, `warning`, `notice`, `info`, or `debug` |
@@ -80,7 +80,7 @@ If Home Assistant runs on the same host, set `REST_LISTEN_ADDRESS=127.0.0.1` and
 
 ## Patching
 
-The image builds `ot-br-posix` from source with zero patches by default and checks `patches/` during Docker builds and CI. See [patches/README.md](patches/README.md) for the directory layout and the steps to add a software flow control patch.
+The image builds `ot-br-posix` from source and applies all `*.patch` files under `patches/` during Docker builds and CI. Both the `stable` and `beta` channels include `patches/openthread/0001-posix-hdlc-software-flow-control.patch` for XON/XOFF software flow control. See [patches/README.md](patches/README.md) for the directory layout, active patches, and verification steps.
 
 ## Upstream synchronization
 
@@ -106,4 +106,4 @@ python3 scripts/upstream_pins.py accept-rootfs
 - **Border routing drops IPv6 packets.** Verify that `/etc/sysctl.d/60-otbr.conf` is applied (`net.ipv6.conf.all.forwarding=1` and `accept_ra=2` on `BACKBONE_IF`) and that `BACKBONE_IF` matches your host LAN interface.
 - **Firewall rules fail or do not apply on the host.** Debian Trixie in this image uses the `iptables-nft` backend by default. If your host runs `iptables-legacy` rules or custom `nftables` chains that drop forwarded traffic before the `ip6tables` hooks, align the host firewall rules or verify that `ipset` and `ip6tables` tables are visible from the host.
 - **Serial device changes path across reboots.** Map a `/dev/serial/by-id/...` path to `/dev/ttyACM0` under `devices` instead of passing `/dev/ttyACM0` directly from the host.
-- **`FLOW_CONTROL=software` fails at startup.** Stock `ot-br-posix` builds in this repo do not include a software flow control patch. Follow [patches/README.md](patches/README.md) to add it.
+- **Radio stalls or fails to reset with `FLOW_CONTROL=software`.** Confirm that your RCP firmware is built with XON/XOFF software flow control enabled. If your adapter uses hardware RTS/CTS or no flow control, set `FLOW_CONTROL=hardware` or `FLOW_CONTROL=none` to match the firmware.

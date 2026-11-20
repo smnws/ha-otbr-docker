@@ -85,9 +85,34 @@ def test_defaults_and_hardware_flow_control() -> None:
     assert cfg.web_listen_address == "::"
 
 
-def test_software_flow_control_rejected_with_patch_guidance() -> None:
-    with pytest.raises(config.ConfigError, match=r"patches/openthread/.*FlowControl\.SOFTWARE"):
-        config.parse_config({"DEVICE": "/dev/ttyACM0", "FLOW_CONTROL": "software"}, make_host())
+@pytest.mark.parametrize("raw_value", ["software", "SOFTWARE"])
+def test_software_flow_control_accepted(raw_value: str) -> None:
+    cfg = config.parse_config(
+        {"DEVICE": "/dev/ttyACM0", "FLOW_CONTROL": raw_value},
+        make_host(),
+    )
+    assert cfg.flow_control is config.FlowControl.SOFTWARE
+    assert cfg.flow_control.value == "software"
+    assert cfg.flow_control.uart_query_param == "&uart-flow-control=software&uart-init-deassert"
+    assert cfg.warnings == ()
+
+    rendered = config.render_config_env(cfg)
+    assert "OTBR_FLOW_CONTROL=software\n" in rendered
+    assert "OTBR_UART_FLOW_PARAM='&uart-flow-control=software&uart-init-deassert'\n" in rendered
+
+
+def test_software_flow_control_with_network_device_warns() -> None:
+    cfg = config.parse_config(
+        {"NETWORK_DEVICE": "192.168.1.50:6638", "FLOW_CONTROL": "software"},
+        make_host(),
+    )
+    assert cfg.flow_control is config.FlowControl.SOFTWARE
+    assert any("FLOW_CONTROL=software with NETWORK_DEVICE" in w for w in cfg.warnings)
+
+
+def test_invalid_flow_control_rejected() -> None:
+    with pytest.raises(config.ConfigError, match=r"none, hardware, or software"):
+        config.parse_config({"DEVICE": "/dev/ttyACM0", "FLOW_CONTROL": "invalid"}, make_host())
 
 
 @pytest.mark.parametrize(
