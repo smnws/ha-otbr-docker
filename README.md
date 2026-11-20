@@ -1,13 +1,8 @@
 # Home Assistant OpenThread Border Router for Docker Compose
 
-Run Home Assistant's official [OpenThread Border Router app](https://github.com/home-assistant/app-openthread-border-router) in standalone Docker Compose (`linux/amd64` and `linux/arm64`) without Home Assistant OS or Supervisor.
+Run the official Home Assistant [OpenThread Border Router app](https://github.com/home-assistant/app-openthread-border-router) in standalone Docker Compose on a Raspberry Pi (`linux/arm64`) or x86 server (`linux/amd64`) without Home Assistant OS.
 
-## Highlights
-
-- **Built from source with Home Assistant parity.** Compiles both `stable` and `beta` `ot-br-posix` channels in one image using Nabu Casa's `openthread-core-ha-config-posix.h`, CMake flags, Spinel RCP recovery (`-DOT_RCP_RESTORATION_MAX_COUNT=2`), and `migrate_otbr_settings.py` dataset migration.
-- **Standalone runtime without `bashio` or Supervisor.** Validates environment variables, device paths, network interfaces, and volume mounts at stage-2 startup before modifying host `ip6tables` or `ipset` rules, and cleans up stale firewall chains on restart.
-- **Automated upstream drift checks.** [scripts/upstream_pins.py](scripts/upstream_pins.py) and a weekly sync workflow verify version pins, Debian and Python packages, CMake flags, and upstream `rootfs/` scripts against `home-assistant/app-openthread-border-router`.
-- **Custom C++ patch hook.** Drop unified git patches into `patches/ot-br-posix/` or `patches/openthread/` to compile custom OpenThread changes with BuildKit layer caching.
+It runs the same OpenThread setup, radio recovery, and dataset migration as the Home Assistant OS app, configured through environment variables and ready to connect to Home Assistant's OpenThread Border Router integration on port `8081`.
 
 ## Quick start
 
