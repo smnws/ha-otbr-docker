@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 set -euo pipefail
 
-# shellcheck disable=SC1091
+# shellcheck source=rootfs/usr/local/lib/otbr/common.sh
 source /usr/local/lib/otbr/common.sh
 load_otbr_config
 

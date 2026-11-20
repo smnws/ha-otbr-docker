@@ -58,12 +58,7 @@ def _host_for_paths(paths: stage2_init.SystemPaths, device: Path) -> config.Host
         ipv6_forwarding_enabled=True,
         mountpoints=frozenset({Path("/data/thread")}),
         existing_paths=frozenset({device}),
-        executable_paths=frozenset(
-            {
-                Path("/opt/otbr-stable/sbin/otbr-agent"),
-                Path("/opt/otbr-beta/sbin/otbr-agent"),
-            }
-        ),
+        available_channels=frozenset({config.Channel.STABLE, config.Channel.BETA}),
         var_lib_thread_is_nonempty_dir=False,
     )
 
@@ -104,7 +99,6 @@ def test_stage2_wiring_channel_toggle_and_idempotency(
     assert not (paths.s6_agent_deps / "socat-otbr-tcp").exists()
     assert (paths.run_config_env.stat().st_mode & 0o777) == 0o644
 
-    # Re-run with BETA=1, NETWORK_DEVICE, and WEB_PORT unset to verify idempotency and toggles.
     rc2 = stage2_init.run_stage2(
         {
             "NETWORK_DEVICE": "192.168.1.10:6638",
@@ -124,7 +118,6 @@ def test_stage2_wiring_channel_toggle_and_idempotency(
     assert (paths.s6_user_contents / "socat-otbr-tcp").is_file()
     assert (paths.s6_agent_deps / "socat-otbr-tcp").is_file()
 
-    # Verify config.env is valid bash syntax and sets expected values.
     bash_check = subprocess.run(
         [
             "bash",

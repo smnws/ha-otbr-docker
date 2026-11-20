@@ -83,13 +83,11 @@ def collect_host_probe(
         if dev_path.exists():
             existing_paths.add(dev_path)
 
-    executable_paths: set[Path] = set()
+    available_channels: set[Channel] = set()
     for ch in Channel:
-        # Map virtual /opt/otbr-<ch> to configured paths.opt_root for testability,
-        # while recording the canonical path expected by parse_config.
         real_bin = paths.opt_root / f"otbr-{ch.value}" / "sbin" / "otbr-agent"
         if real_bin.is_file() and os.access(real_bin, os.X_OK):
-            executable_paths.add(ch.prefix / "sbin" / "otbr-agent")
+            available_channels.add(ch)
 
     vlt = paths.var_lib_thread
     is_nonempty_unmounted = (
@@ -106,7 +104,7 @@ def collect_host_probe(
         ipv6_forwarding_enabled=ipv6_forwarding,
         mountpoints=mountpoints,
         existing_paths=frozenset(existing_paths),
-        executable_paths=frozenset(executable_paths),
+        available_channels=frozenset(available_channels),
         var_lib_thread_is_nonempty_dir=is_nonempty_unmounted,
     )
 

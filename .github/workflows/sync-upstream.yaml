@@ -34,12 +34,12 @@ jobs:
           {
             echo "old_sha=${old_sha}"
             echo "new_sha=${new_sha}"
-            echo "rootfs_diff<<EOF"
+            echo "rootfs_diff<<EOF_ROOTFS_DIFF"
             python3 scripts/upstream_pins.py rootfs-diff || true
-            echo "EOF"
-            echo "drift_report<<EOF"
+            echo "EOF_ROOTFS_DIFF"
+            echo "drift_report<<EOF_DRIFT_REPORT"
             python3 scripts/upstream_pins.py check 2>&1 || true
-            echo "EOF"
+            echo "EOF_DRIFT_REPORT"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Create pull request

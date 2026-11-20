@@ -2,9 +2,9 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck disable=SC1091
+# shellcheck source=rootfs/usr/local/lib/otbr/common.sh
 source "${repo_root}/rootfs/usr/local/lib/otbr/common.sh"
-# shellcheck disable=SC1091
+# shellcheck source=rootfs/usr/local/lib/otbr/firewall.sh
 source "${repo_root}/rootfs/usr/local/lib/otbr/firewall.sh"
 
 tmp_dir="$(mktemp -d)"

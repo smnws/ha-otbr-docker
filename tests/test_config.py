@@ -17,11 +17,8 @@ def make_host(
     ipv6_forwarding_enabled: bool = True,
     mountpoints: frozenset[Path] = frozenset({Path("/"), Path("/data/thread")}),
     existing_paths: frozenset[Path] = frozenset({Path("/dev/ttyACM0")}),
-    executable_paths: frozenset[Path] = frozenset(
-        {
-            Path("/opt/otbr-stable/sbin/otbr-agent"),
-            Path("/opt/otbr-beta/sbin/otbr-agent"),
-        }
+    available_channels: frozenset[config.Channel] = frozenset(
+        {config.Channel.STABLE, config.Channel.BETA}
     ),
     var_lib_thread_is_nonempty_dir: bool = False,
 ) -> config.HostProbe:
@@ -32,7 +29,7 @@ def make_host(
         ipv6_forwarding_enabled=ipv6_forwarding_enabled,
         mountpoints=mountpoints,
         existing_paths=existing_paths,
-        executable_paths=executable_paths,
+        available_channels=available_channels,
         var_lib_thread_is_nonempty_dir=var_lib_thread_is_nonempty_dir,
     )
 

@@ -37,7 +37,8 @@ docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
         test "$(readlink /usr/sbin/otbr-agent)" = "/opt/otbr-stable/sbin/otbr-agent"
         grep -Fxq "channel=stable" /opt/otbr-stable/BUILD_INFO
         /usr/sbin/otbr-agent --version
-        /usr/sbin/otbr-agent --help | grep -q -- "--rest-listen-port"
+        help_out="$(/usr/sbin/otbr-agent --help 2>&1)"
+        grep -q -- "--rest-listen-port" <<< "${help_out}"
         python3 /usr/local/bin/migrate_otbr_settings.py --help >/dev/null
     '
 
@@ -51,7 +52,8 @@ docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \
         test "$(readlink /usr/sbin/otbr-agent)" = "/opt/otbr-beta/sbin/otbr-agent"
         grep -Fxq "channel=beta" /opt/otbr-beta/BUILD_INFO
         /usr/sbin/otbr-agent --version
-        /usr/sbin/otbr-agent --help | grep -q -- "--rest-listen-port"
+        help_out="$(/usr/sbin/otbr-agent --help 2>&1)"
+        grep -q -- "--rest-listen-port" <<< "${help_out}"
     '
 
 docker run --rm "${docker_args[@]}" --entrypoint /bin/bash \

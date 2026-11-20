@@ -62,7 +62,6 @@ jobs:
         include:
           - platform: linux/amd64
             arch_slug: amd64
-            # Switch arm64 runner to ubuntu-24.04-arm for native builds without QEMU.
           - platform: linux/arm64
             arch_slug: arm64
     runs-on: ubuntu-latest
@@ -108,9 +107,11 @@ jobs:
           outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Record digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
         run: |
           mkdir -p /tmp/digests
-          touch "/tmp/digests/${{ steps.push.outputs.digest }}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -154,8 +155,8 @@ jobs:
           fi
 
           sources=()
-          for f in /tmp/digests/sha256:*; do
-            sources+=("${IMAGE}@$(basename "${f}")")
+          for f in /tmp/digests/*; do
+            sources+=("${IMAGE}@sha256:$(basename "${f}")")
           done
 
           docker buildx imagetools create "${tags[@]}" "${sources[@]}"

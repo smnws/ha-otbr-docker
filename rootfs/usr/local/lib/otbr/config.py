@@ -27,8 +27,6 @@ class Channel(Enum):
 class FlowControl(Enum):
     NONE = "none"
     HARDWARE = "hardware"
-    # Future seam: add SOFTWARE = "software" here after applying the
-    # patches/openthread/ HDLC software flow control patch.
 
     @property
     def uart_query_param(self) -> str:
@@ -134,7 +132,7 @@ class HostProbe:
     ipv6_forwarding_enabled: bool
     mountpoints: frozenset[Path]
     existing_paths: frozenset[Path]
-    executable_paths: frozenset[Path]
+    available_channels: frozenset[Channel]
     var_lib_thread_is_nonempty_dir: bool
 
 
@@ -292,10 +290,10 @@ def parse_config(env: Mapping[str, str], host: HostProbe) -> OtbrConfig:
 
     beta = _parse_bool("BETA", _get_env(env, "BETA"), default=False)
     channel = Channel.BETA if beta else Channel.STABLE
-    agent_bin = channel.prefix / "sbin" / "otbr-agent"
-    if agent_bin not in host.executable_paths:
+    if channel not in host.available_channels:
         raise ConfigError(
-            f"Selected channel {channel.value!r} binary is missing or not executable: {agent_bin}"
+            f"Selected channel {channel.value!r} binary is missing or not executable: "
+            f"{channel.prefix / 'sbin' / 'otbr-agent'}"
         )
 
     network_raw = _get_env(env, "NETWORK_DEVICE")

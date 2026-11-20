@@ -25,7 +25,6 @@ OT_BR_POSIX_REPO = "https://github.com/openthread/ot-br-posix.git"
 
 
 def _strip_line_continuations(text: str) -> list[str]:
-    """Collapse backslash-continued lines while skipping standalone comment lines."""
     logical_lines: list[str] = []
     buf: list[str] = []
     continuing = False
@@ -54,7 +53,6 @@ def _strip_line_continuations(text: str) -> list[str]:
 
 
 def _split_stages(dockerfile_text: str) -> list[tuple[str | None, str]]:
-    """Split a Dockerfile into (stage_alias, stage_body) tuples."""
     stages: list[tuple[str | None, list[str]]] = []
     current_alias: str | None = None
     current_lines: list[str] = []
@@ -86,13 +84,11 @@ def extract_pin_args(dockerfile_text: str) -> dict[str, str]:
 
 
 def _tokenize_commands(text: str) -> list[list[str]]:
-    """Split logical lines on shell chain operators into command token lists."""
     commands: list[list[str]] = []
     for line in _strip_line_continuations(text):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
-        # Strip leading Dockerfile instruction keyword if present.
         stripped = re.sub(r"^(?:RUN|ENV|ARG|COPY|FROM)\s+", "", stripped)
         try:
             tokens = shlex.split(stripped, comments=True)

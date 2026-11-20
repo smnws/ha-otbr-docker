@@ -2,6 +2,6 @@
 # shellcheck shell=bash
 set -uo pipefail
 
-# shellcheck disable=SC1091
+# shellcheck source=rootfs/usr/local/lib/otbr/common.sh
 source /usr/local/lib/otbr/common.sh
 log_info "otbr-web ended with exit code ${1} (signal ${2:-0})."

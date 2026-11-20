@@ -58,16 +58,20 @@ apply_repo_patches() {
     local sorted_patches=()
     mapfile -t sorted_patches < <(LC_ALL=C printf '%s\n' "${raw_patches[@]}" | LC_ALL=C sort)
 
+    if [[ "${check_only}" -eq 1 ]]; then
+        echo "Checking ${#sorted_patches[@]} patch(es) for ${repo_name} against ${target_dir}"
+        git -C "${target_dir}" apply --check "${sorted_patches[@]}"
+        return 0
+    fi
+
     local patch
     for patch in "${sorted_patches[@]}"; do
         echo "Checking patch ${repo_name}/$(basename "${patch}") against ${target_dir}"
         git -C "${target_dir}" apply --check "${patch}"
-        if [[ "${check_only}" -eq 0 ]]; then
-            git -C "${target_dir}" apply --verbose "${patch}"
-            local digest
-            digest="$(sha256sum "${patch}" | awk '{print $1}')"
-            applied_lines+=("patch=${repo_name}/$(basename "${patch}") sha256=${digest}")
-        fi
+        git -C "${target_dir}" apply --verbose "${patch}"
+        local digest
+        digest="$(sha256sum "${patch}" | awk '{print $1}')"
+        applied_lines+=("patch=${repo_name}/$(basename "${patch}") sha256=${digest}")
     done
 }
 

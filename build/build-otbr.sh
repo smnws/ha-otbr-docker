@@ -7,7 +7,6 @@ mv /usr/src/openthread-core-ha-config-posix.h /usr/src/ot-br-posix/third_party/o
 mkdir -p /usr/src/ot-br-posix/build
 cd /usr/src/ot-br-posix/build
 
-# The Meshcop service name is specified in `openthread-core-ha-config-posix.h`.
 cmake \
     -GNinja \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
