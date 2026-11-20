@@ -55,13 +55,13 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           load: true
-          tags: otbr-ha:smoke-${{ matrix.arch_slug }}
+          tags: ha-otbr-docker:smoke-${{ matrix.arch_slug }}
           labels: org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.arch_slug }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch_slug }}
 
       - name: Run container smoke checks
-        run: ./tests/smoke_container.sh "otbr-ha:smoke-${{ matrix.arch_slug }}" "${{ matrix.platform }}"
+        run: ./tests/smoke_container.sh "ha-otbr-docker:smoke-${{ matrix.arch_slug }}" "${{ matrix.platform }}"
 
       - name: Push per-arch image by digest
         id: push

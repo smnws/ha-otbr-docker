@@ -31,9 +31,9 @@ jobs:
           context: .
           platforms: linux/amd64
           load: true
-          tags: otbr-ha:ci
+          tags: ha-otbr-docker:ci
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,mode=max,scope=amd64
 
       - name: Run container smoke checks
-        run: ./tests/smoke_container.sh otbr-ha:ci
+        run: ./tests/smoke_container.sh ha-otbr-docker:ci

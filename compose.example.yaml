@@ -1,7 +1,7 @@
 services:
   otbr:
     container_name: otbr
-    image: ghcr.io/smnws/otbr-ha:latest
+    image: ghcr.io/smnws/ha-otbr-docker:latest
     network_mode: host
     # Add `privileged: true` if your host blocks TUN/netfilter operations under cap_add.
     cap_add:

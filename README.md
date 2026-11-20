@@ -1,6 +1,13 @@
-# otbr-ha
+# Home Assistant OpenThread Border Router for Docker Compose
 
-Standalone multi-arch (`linux/amd64` and `linux/arm64`) Docker image for OpenThread Border Router built from `home-assistant/app-openthread-border-router`. It tracks upstream pins, CMake flags, and runtime packages without Home Assistant Supervisor or `bashio`.
+Run Home Assistant's official [OpenThread Border Router app](https://github.com/home-assistant/app-openthread-border-router) in standalone Docker Compose (`linux/amd64` and `linux/arm64`) without Home Assistant OS or Supervisor.
+
+## Highlights
+
+- **Built from source with Home Assistant parity.** Compiles both `stable` and `beta` `ot-br-posix` channels in one image using Nabu Casa's `openthread-core-ha-config-posix.h`, CMake flags, Spinel RCP recovery (`-DOT_RCP_RESTORATION_MAX_COUNT=2`), and `migrate_otbr_settings.py` dataset migration.
+- **Standalone runtime without `bashio` or Supervisor.** Validates environment variables, device paths, network interfaces, and volume mounts at stage-2 startup before modifying host `ip6tables` or `ipset` rules, and cleans up stale firewall chains on restart.
+- **Automated upstream drift checks.** [scripts/upstream_pins.py](scripts/upstream_pins.py) and a weekly sync workflow verify version pins, Debian and Python packages, CMake flags, and upstream `rootfs/` scripts against `home-assistant/app-openthread-border-router`.
+- **Custom C++ patch hook.** Drop unified git patches into `patches/ot-br-posix/` or `patches/openthread/` to compile custom OpenThread changes with BuildKit layer caching.
 
 ## Quick start
 
@@ -15,16 +22,39 @@ EOF
 sudo sysctl --system
 ```
 
-2. Authenticate to GitHub Container Registry if the package is private:
+2. Add the `otbr` service to your `compose.yaml` (or copy [compose.example.yaml](compose.example.yaml)) and set your serial adapter path and `BACKBONE_IF`:
 
-```bash
-echo "$GHCR_TOKEN" | docker login ghcr.io -u smnws --password-stdin
+```yaml
+services:
+  otbr:
+    container_name: otbr
+    image: ghcr.io/smnws/ha-otbr-docker:latest
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - IPC_LOCK
+    environment:
+      DEVICE: "/dev/ttyACM0"
+      BACKBONE_IF: "eth0"
+      BAUDRATE: "460800"
+      FLOW_CONTROL: "1"
+      FIREWALL: "1"
+      NAT64: "0"
+      OTBR_LOG_LEVEL: "notice"
+      BETA: "0"
+    devices:
+      - /dev/serial/by-id/usb-YOUR_ADAPTER_ID-if00-port0:/dev/ttyACM0
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./otbr_data:/data/thread
+    restart: unless-stopped
 ```
 
-3. Copy [compose.example.yaml](compose.example.yaml) to `compose.yaml`, set `DEVICE` and `BACKBONE_IF` for your host, and start the container:
+3. Start the container:
 
 ```bash
-docker compose up -d
+docker compose up -d otbr
 ```
 
 Mount one persistent volume at `/data/thread`, `/data`, or `/var/lib/thread`. Startup fails if you mount `/var/lib/thread` together with `/data` or `/data/thread`.

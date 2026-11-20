@@ -172,7 +172,7 @@ def apply_wiring(cfg: OtbrConfig, paths: SystemPaths = SystemPaths()) -> None:
 
 def print_banner(cfg: OtbrConfig, paths: SystemPaths = SystemPaths()) -> None:
     build_info_path = paths.channel_dir(cfg.channel) / "BUILD_INFO"
-    print(f"INFO: Starting otbr-ha (channel={cfg.channel.value})")
+    print(f"INFO: Starting ha-otbr-docker (channel={cfg.channel.value})")
     if build_info_path.is_file():
         for line in build_info_path.read_text(encoding="utf-8").splitlines():
             if line.strip():

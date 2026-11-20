@@ -105,5 +105,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 
 LABEL org.opencontainers.image.title="OpenThread Border Router (Standalone)" \
     org.opencontainers.image.description="Standalone Docker image built from home-assistant/app-openthread-border-router" \
-    org.opencontainers.image.source="https://github.com/smnws/otbr-ha" \
+    org.opencontainers.image.source="https://github.com/smnws/ha-otbr-docker" \
     org.opencontainers.image.licenses="Apache-2.0"
