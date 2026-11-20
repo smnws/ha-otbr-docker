@@ -20,8 +20,8 @@ services:
       # WEB_PORT: "8080"
       # REST_LISTEN_PORT: "8081"
     devices:
-      - /dev/serial/by-id/usb-SONOFF_SONOFF_Dongle_Plus_MG24_04c1ca306ba1ef118473976661ce3355-if00-port0:/dev/ttyACM0
+      - /dev/serial/by-id/usb-YOUR_ADAPTER_ID-if00-port0:/dev/ttyACM0
       - /dev/net/tun:/dev/net/tun
     volumes:
-      - ./otbr_data_witt:/data/thread
+      - ./otbr_data:/data/thread
     restart: unless-stopped
