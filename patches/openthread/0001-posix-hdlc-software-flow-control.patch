@@ -1,0 +1,120 @@
+diff --git a/src/posix/platform/hdlc_interface.cpp b/src/posix/platform/hdlc_interface.cpp
+index 1807e6f..cbb3f2d 100644
+--- a/src/posix/platform/hdlc_interface.cpp
++++ b/src/posix/platform/hdlc_interface.cpp
+@@ -621,24 +621,55 @@ int HdlcInterface::OpenFile(const Url::Url &aRadioUrl)
+ 
+         mBaudRate = baudrate;
+ 
+-        if (aRadioUrl.HasParam("uart-flow-control"))
++        enum class FlowControl : uint8_t
+         {
+-            tios.c_cflag |= CRTSCTS;
+-        }
+-        else if (aRadioUrl.HasParam("uart-init-deassert"))
++            kNone,
++            kHardware,
++            kSoftware,
++        };
++
++        FlowControl flowControl = FlowControl::kNone;
++
++        if ((value = aRadioUrl.GetValue("uart-flow-control")) != nullptr)
+         {
+-            // When flow control is disabled, deassert DTR and RTS on init
+-#ifndef __APPLE__
+-            int flags;
+-#endif
++            if (aRadioUrl.GetValue("uart-flow-control", value) != nullptr)
++            {
++                DieNow(OT_EXIT_INVALID_ARGUMENTS);
++            }
+ 
+-            tios.c_cflag &= ~(CRTSCTS);
++            if ((value[0] == '\0') || (strcmp(value, "hardware") == 0))
++            {
++                flowControl = FlowControl::kHardware;
++            }
++            else if (strcmp(value, "software") == 0)
++            {
++                flowControl = FlowControl::kSoftware;
++            }
++            else if (strcmp(value, "none") == 0)
++            {
++                flowControl = FlowControl::kNone;
++            }
++            else
++            {
++                DieNow(OT_EXIT_INVALID_ARGUMENTS);
++            }
++        }
+ 
+-#ifndef __APPLE__
+-            // Deassert DTR and RTS
+-            flags = TIOCM_DTR | TIOCM_RTS;
+-            VerifyOrExit(ioctl(fd, TIOCMBIC, &flags) != -1, perror("tiocmbic"));
+-#endif
++        tios.c_iflag &= ~static_cast<tcflag_t>(IXON | IXOFF | IXANY);
++        tios.c_cflag &= ~static_cast<tcflag_t>(CRTSCTS);
++
++        switch (flowControl)
++        {
++        case FlowControl::kHardware:
++            tios.c_cflag |= CRTSCTS;
++            break;
++        case FlowControl::kSoftware:
++            tios.c_iflag |= static_cast<tcflag_t>(IXON | IXOFF);
++            tios.c_cc[VSTART] = static_cast<cc_t>(0x11);
++            tios.c_cc[VSTOP]  = static_cast<cc_t>(0x13);
++            break;
++        case FlowControl::kNone:
++            break;
+         }
+ 
+         VerifyOrExit((rval = cfsetspeed(&tios, static_cast<speed_t>(speed))) == 0, perror("cfsetspeed"));
+@@ -657,7 +688,28 @@ int HdlcInterface::OpenFile(const Url::Url &aRadioUrl)
+ #else  // __APPLE__
+         VerifyOrExit(rval == 0, perror("tcsetattr"));
+ #endif // __APPLE__
++
++        if ((flowControl != FlowControl::kHardware) && aRadioUrl.HasParam("uart-init-deassert"))
++        {
++#ifndef __APPLE__
++            int flags = TIOCM_DTR | TIOCM_RTS;
++
++            if ((ioctl(fd, TIOCMBIC, &flags) == -1) && (errno != ENOTTY) && (errno != EINVAL) &&
++                (errno != EOPNOTSUPP))
++            {
++                perror("tiocmbic");
++                rval = -1;
++                ExitNow();
++            }
++#endif
++        }
++
+         VerifyOrExit((rval = tcflush(fd, TCIOFLUSH)) == 0);
++
++        if (flowControl == FlowControl::kSoftware)
++        {
++            VerifyOrExit((rval = tcflow(fd, TCOON)) == 0, perror("tcflow"));
++        }
+     }
+ 
+ exit:
+diff --git a/src/posix/platform/radio_url.cpp b/src/posix/platform/radio_url.cpp
+index 28edbb2..95dddbf 100644
+--- a/src/posix/platform/radio_url.cpp
++++ b/src/posix/platform/radio_url.cpp
+@@ -82,8 +82,10 @@ const char *otSysGetRadioUrlHelpString(void)
+     "    uart-parity[=even|odd]         Uart parity config, optional.\n"                             \
+     "    uart-stop[=number-of-bits]     Uart stop bit, default is 1.\n"                              \
+     "    uart-baudrate[=baudrate]       Uart baud rate, default is 460800.\n"                        \
+-    "    uart-flow-control              Enable flow control, disabled by default.\n"                 \
+-    "    uart-init-deassert             Deassert lines on init when flow control is disabled.\n"     \
++    "    uart-flow-control[=hardware|software|none]\n"                                               \
++    "                                   Enable UART flow control (bare defaults to hardware),\n"      \
++    "                                   disabled by default.\n"                                      \
++    "    uart-init-deassert             Deassert lines on init when hardware flow control is disabled.\n" \
+     "    uart-reset                     Reset connection after hard resetting RCP(USB CDC ACM).\n"   \
+     "    uart-exclusive                 Lock uart device using flock / TIOCEXCL.\n"                  \
+     "\n"
