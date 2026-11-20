@@ -3,6 +3,12 @@ set -euo pipefail
 
 install_prefix="${1:?Usage: build-otbr.sh <install_prefix>}"
 
+export CCACHE_DIR="${CCACHE_DIR:-/var/cache/ccache}"
+export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-2G}"
+export CCACHE_COMPILERCHECK="content"
+export CCACHE_BASEDIR="/usr/src/ot-br-posix"
+export CCACHE_NOHASHDIR="1"
+
 cp /usr/src/openthread-core-ha-config-posix.h /usr/src/ot-br-posix/third_party/openthread/repo/
 mkdir -p /usr/src/ot-br-posix/build
 cd /usr/src/ot-br-posix/build
@@ -10,6 +16,8 @@ cd /usr/src/ot-br-posix/build
 cmake \
     -GNinja \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     -DCMAKE_C_FLAGS=-Wno-error=array-bounds \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
@@ -40,6 +48,7 @@ cmake \
     -DOT_RCP_RESTORATION_MAX_COUNT=2
 
 ninja
+ccache -s
 ninja install
 strip \
     "${install_prefix}/sbin/otbr-agent" \

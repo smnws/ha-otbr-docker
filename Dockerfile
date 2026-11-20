@@ -27,6 +27,7 @@ RUN apt-get update \
         libreadline-dev \
         libncurses-dev \
         build-essential \
+        ccache \
         ninja-build \
         cmake \
         iptables \
@@ -50,7 +51,8 @@ RUN --mount=type=cache,target=/var/cache/otbr-git,sharing=locked \
 COPY build/apply-patches.sh build/build-otbr.sh /usr/local/bin/
 COPY patches/ /usr/src/patches/
 
-RUN /usr/local/bin/apply-patches.sh beta /opt/otbr-beta "${OTBR_BETA_VERSION}" \
+RUN --mount=type=cache,target=/var/cache/ccache,id=otbr-ccache \
+    /usr/local/bin/apply-patches.sh beta /opt/otbr-beta "${OTBR_BETA_VERSION}" \
     && /usr/local/bin/build-otbr.sh /opt/otbr-beta
 
 FROM otbr-builder-base AS otbr-stable-builder
@@ -62,7 +64,8 @@ RUN --mount=type=cache,target=/var/cache/otbr-git,sharing=locked \
 COPY build/apply-patches.sh build/build-otbr.sh /usr/local/bin/
 COPY patches/ /usr/src/patches/
 
-RUN /usr/local/bin/apply-patches.sh stable /opt/otbr-stable "${OTBR_VERSION}" \
+RUN --mount=type=cache,target=/var/cache/ccache,id=otbr-ccache \
+    /usr/local/bin/apply-patches.sh stable /opt/otbr-stable "${OTBR_VERSION}" \
     && /usr/local/bin/build-otbr.sh /opt/otbr-stable
 
 FROM ${BUILD_FROM} AS runtime

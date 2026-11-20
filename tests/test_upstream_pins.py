@@ -134,7 +134,11 @@ def test_check_fails_on_builder_apt_drift(
     sandbox_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     df = sandbox_repo / "Dockerfile"
-    df.write_text(df.read_text(encoding="utf-8").replace("protobuf-compiler ", ""), encoding="utf-8")
+    original = df.read_text(encoding="utf-8")
+    df.write_text(original.replace("cmake git ", "cmake ccache git "), encoding="utf-8")
+    assert upstream_pins.main(["--repo-root", str(sandbox_repo), "check"]) == 0
+
+    df.write_text(original.replace("protobuf-compiler ", ""), encoding="utf-8")
     assert upstream_pins.main(["--repo-root", str(sandbox_repo), "check"]) == 1
     err = capsys.readouterr().err
     assert "Builder apt packages mismatch" in err

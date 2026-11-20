@@ -23,9 +23,12 @@ PIN_NAMES = (
     "UNIVERSAL_SILABS_FLASHER_VERSION",
 )
 ROOTFS_EXCLUDED = frozenset({"usr/local/bin/migrate_otbr_settings.py"})
+LOCAL_EXTRA_BUILDER_APTS = frozenset({"ccache"})
 LOCAL_EXTRA_CMAKE_FLAGS = frozenset(
     {
         "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+        "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
         "-DCMAKE_C_FLAGS=-Wno-error=array-bounds",
     }
 )
@@ -433,7 +436,8 @@ def cmd_check(repo_root: Path) -> int:
         if u_val != l_val:
             errors.append(f"ARG {name} mismatch:\n  upstream: {u_val}\n  local:    {l_val}")
 
-    errors.extend(_diff_items("Builder apt packages", facts.builder_apts, l_builder_apts))
+    effective_builder_apts = tuple(sorted(set(l_builder_apts) - LOCAL_EXTRA_BUILDER_APTS))
+    errors.extend(_diff_items("Builder apt packages", facts.builder_apts, effective_builder_apts))
     errors.extend(_diff_items("Runtime apt packages", facts.runtime_apts, l_runtime_apts))
     errors.extend(_diff_items("Runtime pip packages", facts.runtime_pips, l_runtime_pips))
     effective_local_cmake = tuple(sorted(set(l_cmake) - LOCAL_EXTRA_CMAKE_FLAGS))
