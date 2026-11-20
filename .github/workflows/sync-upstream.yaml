@@ -9,18 +9,22 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: true
+
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Update upstream submodule and sync pins
         id: sync
@@ -43,7 +47,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: sync/upstream
           commit-message: "chore: sync upstream app-openthread-border-router (${{ steps.sync.outputs.new_sha }})"

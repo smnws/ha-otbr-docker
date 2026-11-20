@@ -12,47 +12,13 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install test dependencies
-        run: pip install --no-cache-dir pytest
-
-      - name: Check upstream drift and patches
-        run: |
-          python3 scripts/upstream_pins.py check
-          python3 scripts/upstream_pins.py patch-check
-
-      - name: Run shellcheck
-        run: |
-          shellcheck -x \
-            build/*.sh \
-            rootfs/usr/local/lib/otbr/*.sh \
-            rootfs/etc/s6-overlay/scripts/*.sh \
-            rootfs/etc/s6-overlay/s6-rc.d/*/run \
-            rootfs/etc/s6-overlay/s6-rc.d/*/finish \
-            rootfs/etc/s6-overlay/s6-rc.d/*/data/check \
-            tests/*.sh
-
-      - name: Run hadolint
-        uses: hadolint/hadolint-action@v3.5.0
-        with:
-          dockerfile: Dockerfile
-
-      - name: Run unit tests
-        run: |
-          pytest -v tests/
-          ./tests/test_firewall.sh
-          ./tests/test_apply_patches.sh
+    uses: ./.github/workflows/verify.yaml
 
   build:
     needs: verify
@@ -68,20 +34,20 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build local image for smoke tests
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: ${{ matrix.platform }}
@@ -95,7 +61,7 @@ jobs:
 
       - name: Push per-arch image by digest
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: ${{ matrix.platform }}
@@ -109,7 +75,7 @@ jobs:
           mkdir -p /tmp/digests
           touch "/tmp/digests/${DIGEST#sha256:}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: digests-${{ matrix.arch_slug }}
           path: /tmp/digests/*
@@ -120,19 +86,19 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: digests-*
           merge-multiple: true
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Create and push multi-arch manifest
         env:
