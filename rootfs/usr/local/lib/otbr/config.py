@@ -146,6 +146,7 @@ class OtbrConfig:
     transport: RadioTransport
     baudrate: int
     flow_control: FlowControl
+    tx_power: int
     backbone_if: str
     thread_if: str
     firewall: bool
@@ -227,9 +228,9 @@ def _parse_ip_address(name: str, raw: str | None, default: str) -> str:
         ) from exc
 
 
-def _parse_flow_control(raw: str | None) -> FlowControl:
+def _parse_flow_control(raw: str | None, *, default: FlowControl) -> FlowControl:
     if raw is None:
-        return FlowControl.HARDWARE
+        return default
     lowered = raw.lower()
     if lowered in _FALSE_VALUES or lowered == "none":
         return FlowControl.NONE
@@ -240,6 +241,21 @@ def _parse_flow_control(raw: str | None) -> FlowControl:
     raise ConfigError(
         f"Invalid FLOW_CONTROL: {raw!r} (expected 0/1, none, hardware, or software)."
     )
+
+
+def _parse_tx_power(raw: str | None) -> int:
+    if raw is None:
+        return 6
+    if not re.fullmatch(r"-?\d+", raw):
+        raise ConfigError(
+            f"Invalid TX_POWER: {raw!r} (expected integer between -20 and 20 dBm)."
+        )
+    power = int(raw)
+    if not (-20 <= power <= 20):
+        raise ConfigError(
+            f"Invalid TX_POWER: {power} (expected integer between -20 and 20 dBm)."
+        )
+    return power
 
 
 def _parse_network_device(raw: str) -> NetworkTransport:
@@ -364,7 +380,10 @@ def parse_config(env: Mapping[str, str], host: HostProbe) -> OtbrConfig:
         raise ConfigError("Either DEVICE or NETWORK_DEVICE must be set.")
 
     baudrate = _parse_baudrate(_get_env(env, "BAUDRATE"))
-    flow_control = _parse_flow_control(_get_env(env, "FLOW_CONTROL"))
+    default_flow_control = (
+        FlowControl.NONE if isinstance(transport, NetworkTransport) else FlowControl.SOFTWARE
+    )
+    flow_control = _parse_flow_control(_get_env(env, "FLOW_CONTROL"), default=default_flow_control)
     if isinstance(transport, NetworkTransport) and flow_control is FlowControl.SOFTWARE:
         warnings.append(
             "FLOW_CONTROL=software with NETWORK_DEVICE applies XON/XOFF only to the local "
@@ -372,6 +391,7 @@ def parse_config(env: Mapping[str, str], host: HostProbe) -> OtbrConfig:
             "may not forward XON/XOFF. Use FLOW_CONTROL=none unless your TCP bridge "
             "transparently passes XON/XOFF to a software-flow-control RCP."
         )
+    tx_power = _parse_tx_power(_get_env(env, "TX_POWER"))
 
     backbone_if = _get_env(env, "BACKBONE_IF") or host.default_route_interface
     if not backbone_if:
@@ -415,6 +435,7 @@ def parse_config(env: Mapping[str, str], host: HostProbe) -> OtbrConfig:
         transport=transport,
         baudrate=baudrate,
         flow_control=flow_control,
+        tx_power=tx_power,
         backbone_if=backbone_if,
         thread_if="wpan0",
         firewall=firewall,
@@ -442,6 +463,7 @@ def render_config_env(cfg: OtbrConfig) -> str:
         ("OTBR_BAUDRATE", str(cfg.baudrate)),
         ("OTBR_FLOW_CONTROL", cfg.flow_control.value),
         ("OTBR_UART_FLOW_PARAM", cfg.flow_control.uart_query_param),
+        ("OTBR_TX_POWER", str(cfg.tx_power)),
         ("OTBR_FIREWALL", "1" if cfg.firewall else "0"),
         ("OTBR_NAT64", "1" if cfg.nat64 else "0"),
         ("OTBR_LOG_LEVEL", cfg.log_level.name.lower()),

@@ -35,5 +35,5 @@ log_info "Setting OpenThread mDNS local hostname to ${mdns_localhostname}."
 otctl mdns localhostname "${mdns_localhostname}"
 otctl mdns enable
 
-# Keep TX power at 6 dBm to avoid asymmetric link quality with other Thread routers.
-otctl txpower 6
+# Keep TX power controlled to avoid asymmetric link quality with other Thread routers.
+otctl txpower "${OTBR_TX_POWER:-6}"

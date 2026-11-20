@@ -189,7 +189,8 @@ def print_banner(cfg: OtbrConfig, paths: SystemPaths = SystemPaths()) -> None:
     print(
         "INFO: Effective config: "
         f"transport={transport_desc} baudrate={cfg.baudrate} "
-        f"flow_control={cfg.flow_control.value} backbone_if={cfg.backbone_if} "
+        f"flow_control={cfg.flow_control.value} tx_power={cfg.tx_power} "
+        f"backbone_if={cfg.backbone_if} "
         f"thread_if={cfg.thread_if} firewall={int(cfg.firewall)} nat64={int(cfg.nat64)} "
         f"log_level={cfg.log_level.name.lower()} "
         f"rest={cfg.rest_api.listen_address}:{cfg.rest_api.port} "
