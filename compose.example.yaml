@@ -7,14 +7,15 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-      - IPC_LOCK
     environment:
       DEVICE: "/dev/ttyACM0"
       # NETWORK_DEVICE: "192.168.1.50:6638"
       BACKBONE_IF: "eth0"
       BAUDRATE: "460800"
       # Valid values: "0" ("none"), "1" ("hardware"), or "software" (XON/XOFF).
-      FLOW_CONTROL: "1"
+      FLOW_CONTROL: "software"
+      # TX power in dBm (-20..20). Default is 6; EFR32MG24 sticks may need 7 to report 6 dBm.
+      TX_POWER: "6"
       FIREWALL: "1"
       NAT64: "0"
       OTBR_LOG_LEVEL: "notice"

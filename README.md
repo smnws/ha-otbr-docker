@@ -28,12 +28,12 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-      - IPC_LOCK
     environment:
       DEVICE: "/dev/ttyACM0"
       BACKBONE_IF: "eth0"
       BAUDRATE: "460800"
-      FLOW_CONTROL: "1"
+      FLOW_CONTROL: "software"
+      TX_POWER: "6"
       FIREWALL: "1"
       NAT64: "0"
       OTBR_LOG_LEVEL: "notice"
@@ -68,7 +68,8 @@ If Home Assistant runs on the same host, set `REST_LISTEN_ADDRESS=127.0.0.1` and
 | `NETWORK_DEVICE` | unset | TCP RCP endpoint as `host:port` or `[ipv6]:port`; overrides `DEVICE` and starts `socat` on `/tmp/ttyOTBR` |
 | `BACKBONE_IF` | default route interface | Host network interface used for Thread border routing and TREL |
 | `BAUDRATE` | `460800` | Serial baudrate (`57600`, `115200`, `230400`, `460800`, `921600`, or `1000000`) |
-| `FLOW_CONTROL` | `1` | `0` (`none`), `1` (`hardware`), or `software` (XON/XOFF, requires RCP firmware with software flow control) |
+| `FLOW_CONTROL` | `software` (`none` with `NETWORK_DEVICE`) | `0` (`none`), `1` (`hardware`), or `software` (XON/XOFF, requires RCP firmware with software flow control) |
+| `TX_POWER` | `6` | Radio transmit power in dBm (`-20..20`); adapters like EFR32MG24 round down to discrete PA steps (`TX_POWER=7` reports `6 dBm`) |
 | `FIREWALL` | `1` | `1` to enforce `ip6tables` and `ipset` Thread ingress filtering, `0` to allow forwarding |
 | `NAT64` | `0` | `1` to enable OpenThread NAT64, upstream DNS, and `iptables` masquerading |
 | `OTBR_LOG_LEVEL` | `notice` | `emergency`, `alert`, `critical`, `error`, `warning`, `notice`, `info`, or `debug` |
@@ -77,6 +78,20 @@ If Home Assistant runs on the same host, set `REST_LISTEN_ADDRESS=127.0.0.1` and
 | `REST_LISTEN_PORT` | `8081` | TCP port (`1..65535`) for the OTBR REST API |
 | `WEB_LISTEN_ADDRESS` | `::` | IPv4 or IPv6 listen address for `otbr-web` |
 | `WEB_PORT` | unset | TCP port (`1..65535`) for `otbr-web`; disabled when unset or empty, and must differ from `REST_LISTEN_PORT` |
+
+## Edge builds (latest upstream OTBR)
+
+By default, `:latest` builds Home Assistant's pinned `stable` and `beta` `ot-br-posix` commits. To build against the latest upstream `openthread/ot-br-posix` commit instead:
+
+- **GitHub Actions:** Run the **Build Edge (Latest Upstream OTBR)** workflow (`build-edge.yaml`) from the Actions tab. It resolves the target ref (default `main`) to a single commit SHA, runs the full container smoke suite on `linux/amd64` and `linux/arm64`, and publishes `ghcr.io/smnws/ha-otbr-docker:edge` and `:edge-<short_sha>` without modifying `:latest`.
+- **Local Docker build:** Pass `OTBR_VERSION=main` and `OTBR_BETA_VERSION=main` (or any upstream branch, tag, or commit SHA):
+
+```bash
+docker build \
+  --build-arg OTBR_VERSION=main \
+  --build-arg OTBR_BETA_VERSION=main \
+  -t ha-otbr-docker:edge .
+```
 
 ## Patching
 
