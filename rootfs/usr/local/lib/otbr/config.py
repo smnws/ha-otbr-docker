@@ -27,11 +27,14 @@ class Channel(Enum):
 class FlowControl(Enum):
     NONE = "none"
     HARDWARE = "hardware"
+    SOFTWARE = "software"
 
     @property
     def uart_query_param(self) -> str:
         if self is FlowControl.HARDWARE:
             return "&uart-flow-control"
+        if self is FlowControl.SOFTWARE:
+            return "&uart-flow-control=software&uart-init-deassert"
         return "&uart-init-deassert"
 
 
@@ -233,13 +236,9 @@ def _parse_flow_control(raw: str | None) -> FlowControl:
     if lowered in _TRUE_VALUES or lowered == "hardware":
         return FlowControl.HARDWARE
     if lowered == "software":
-        raise ConfigError(
-            "FLOW_CONTROL=software is not enabled in this build. "
-            "Add the HDLC software flow control patch under patches/openthread/ "
-            "and enable FlowControl.SOFTWARE in rootfs/usr/local/lib/otbr/config.py."
-        )
+        return FlowControl.SOFTWARE
     raise ConfigError(
-        f"Invalid FLOW_CONTROL: {raw!r} (expected 0/1, none, or hardware)."
+        f"Invalid FLOW_CONTROL: {raw!r} (expected 0/1, none, hardware, or software)."
     )
 
 
@@ -366,6 +365,13 @@ def parse_config(env: Mapping[str, str], host: HostProbe) -> OtbrConfig:
 
     baudrate = _parse_baudrate(_get_env(env, "BAUDRATE"))
     flow_control = _parse_flow_control(_get_env(env, "FLOW_CONTROL"))
+    if isinstance(transport, NetworkTransport) and flow_control is FlowControl.SOFTWARE:
+        warnings.append(
+            "FLOW_CONTROL=software with NETWORK_DEVICE applies XON/XOFF only to the local "
+            "/tmp/ttyOTBR PTY; TCP already provides flow control and remote serial bridges "
+            "may not forward XON/XOFF. Use FLOW_CONTROL=none unless your TCP bridge "
+            "transparently passes XON/XOFF to a software-flow-control RCP."
+        )
 
     backbone_if = _get_env(env, "BACKBONE_IF") or host.default_route_interface
     if not backbone_if:

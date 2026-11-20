@@ -242,7 +242,7 @@ def test_stage2_handles_oserror_cleanly(
     assert "ERROR:" in capsys.readouterr().err
 
 
-def test_stage2_invalid_config_exits_1_without_writing_env(
+def test_stage2_software_flow_control_wires_config_env(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     paths = _make_system_paths(tmp_path)
@@ -251,6 +251,39 @@ def test_stage2_invalid_config_exits_1_without_writing_env(
 
     rc = stage2_init.run_stage2(
         {"DEVICE": str(device), "BACKBONE_IF": "eth0", "FLOW_CONTROL": "software"},
+        paths=paths,
+        default_route_detector=lambda: "eth0",
+    )
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "flow_control=software" in captured.out
+    assert captured.err == ""
+
+    bash_check = subprocess.run(
+        [
+            "bash",
+            "-c",
+            (
+                f'source "{paths.run_config_env}" && printf "%s|%s" '
+                '"$OTBR_FLOW_CONTROL" "$OTBR_UART_FLOW_PARAM"'
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert bash_check.stdout == "software|&uart-flow-control=software&uart-init-deassert"
+
+
+def test_stage2_invalid_config_exits_1_without_writing_env(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _make_system_paths(tmp_path)
+    device = tmp_path / "dev_ttyACM0"
+    device.touch()
+
+    rc = stage2_init.run_stage2(
+        {"DEVICE": str(device), "BACKBONE_IF": "eth0", "FLOW_CONTROL": "invalid"},
         paths=paths,
         default_route_detector=lambda: "eth0",
     )
