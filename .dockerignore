@@ -1,0 +1,14 @@
+.git
+.cache
+.pytest_cache
+__pycache__
+.github
+tests
+scripts
+compose.example.yaml
+README.md
+upstream-rootfs.sha256
+upstream/.git
+upstream/openthread_border_router/DOCS.md
+upstream/openthread_border_router/README.md
+upstream/openthread_border_router/*.png

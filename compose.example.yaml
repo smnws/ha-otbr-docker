@@ -1,0 +1,27 @@
+services:
+  otbr:
+    container_name: otbr
+    image: ghcr.io/smnws/otbr-ha:latest
+    privileged: true
+    network_mode: host
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+    environment:
+      DEVICE: "/dev/ttyACM0"
+      # NETWORK_DEVICE: "192.168.1.50:6638"
+      BACKBONE_IF: "eth0"
+      FLOW_CONTROL: "0"
+      FIREWALL: "1"
+      NAT64: "0"
+      BAUDRATE: "1000000"
+      OTBR_LOG_LEVEL: "error"
+      BETA: "1"
+      # WEB_PORT: "8080"
+      # REST_LISTEN_PORT: "8081"
+    devices:
+      - /dev/serial/by-id/usb-YOUR_ADAPTER_ID-if00-port0:/dev/ttyACM0
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./otbr_data:/data/thread
+    restart: unless-stopped
