@@ -121,4 +121,12 @@ python3 scripts/upstream_pins.py accept-rootfs
 - **Border routing drops IPv6 packets.** Verify that `/etc/sysctl.d/60-otbr.conf` is applied (`net.ipv6.conf.all.forwarding=1` and `accept_ra=2` on `BACKBONE_IF`) and that `BACKBONE_IF` matches your host LAN interface.
 - **Firewall rules fail or do not apply on the host.** Debian Trixie in this image uses the `iptables-nft` backend by default. If your host runs `iptables-legacy` rules or custom `nftables` chains that drop forwarded traffic before the `ip6tables` hooks, align the host firewall rules or verify that `ipset` and `ip6tables` tables are visible from the host.
 - **Serial device changes path across reboots.** Map a `/dev/serial/by-id/...` path to `/dev/ttyACM0` under `devices` instead of passing `/dev/ttyACM0` directly from the host.
-- **Radio stalls or fails to reset with `FLOW_CONTROL=software`.** Confirm that your RCP firmware is built with XON/XOFF software flow control enabled. If your adapter uses hardware RTS/CTS or no flow control, set `FLOW_CONTROL=hardware` or `FLOW_CONTROL=none` to match the firmware.
+- **Radio stalls or fails to reset with `FLOW_CONTROL=software`.** Confirm that your RCP firmware is built with XON/XOFF software flow control enabled. You can verify the dongle directly (temporarily stopping `otbr`) with [scripts/probe_sw_flow_control.py](scripts/probe_sw_flow_control.py):
+
+  ```bash
+  docker compose stop otbr
+  python3 scripts/probe_sw_flow_control.py /dev/serial/by-id/usb-YOUR_ADAPTER_ID-if00-port0 <BAUDRATE>
+  docker compose start otbr
+  ```
+
+  Replace `<BAUDRATE>` with your adapter's `BAUDRATE` (for example `460800` or `1000000`). If your adapter uses hardware RTS/CTS or no flow control, set `FLOW_CONTROL=hardware` or `FLOW_CONTROL=none` to match the firmware.
