@@ -2,9 +2,9 @@ diff --git a/src/posix/platform/hdlc_interface.cpp b/src/posix/platform/hdlc_int
 index b6d8b56..35195d5 100644
 --- a/src/posix/platform/hdlc_interface.cpp
 +++ b/src/posix/platform/hdlc_interface.cpp
-@@ -629,16 +629,55 @@ int HdlcInterface::OpenFile(const Url::Url &aRadioUrl)
+@@ -643,16 +643,55 @@ int HdlcInterface::OpenFile(const Url::Url &aRadioUrl)
  
-         mBaudRate = baudrate;
+         mBusSpeed = CalculateBusSpeed(baudrate, hasParity, stopBit);
  
 -        if (aRadioUrl.HasParam("uart-flow-control"))
 +        enum class FlowControl : uint8_t
@@ -65,7 +65,7 @@ index b6d8b56..35195d5 100644
          }
  
          VerifyOrExit((rval = cfsetspeed(&tios, static_cast<speed_t>(speed))) == 0, perror("cfsetspeed"));
-@@ -657,7 +696,28 @@ int HdlcInterface::OpenFile(const Url::Url &aRadioUrl)
+@@ -671,7 +710,28 @@ int HdlcInterface::OpenFile(const Url::Url &aRadioUrl)
  #else  // __APPLE__
          VerifyOrExit(rval == 0, perror("tcsetattr"));
  #endif // __APPLE__
@@ -98,16 +98,16 @@ diff --git a/src/posix/platform/radio_url.cpp b/src/posix/platform/radio_url.cpp
 index 9bcdbae..bd518f8 100644
 --- a/src/posix/platform/radio_url.cpp
 +++ b/src/posix/platform/radio_url.cpp
-@@ -83,8 +83,10 @@ const char *otSysGetRadioUrlHelpString(void)
-     "    uart-parity[=even|odd]         Uart parity config, optional.\n"                             \
-     "    uart-stop[=number-of-bits]     Uart stop bit, default is 1.\n"                              \
-     "    uart-baudrate[=baudrate]       Uart baud rate, default is 460800.\n"                        \
--    "    uart-flow-control              Enable flow control, disabled by default.\n"                 \
--    "    uart-init-deassert             Deassert lines on init when flow control is disabled.\n"     \
-+    "    uart-flow-control[=hardware|software|none]\n"                                               \
-+    "                                   Enable UART flow control (bare defaults to hardware),\n"      \
-+    "                                   disabled by default.\n"                                      \
-+    "    uart-init-deassert             Deassert lines on init when hardware flow control is disabled.\n" \
-     "    uart-reset                     Reset connection after hard resetting RCP(USB CDC ACM).\n"   \
-     "    uart-exclusive                 Lock uart device using flock / TIOCEXCL.\n"                  \
+@@ -94,8 +94,10 @@
+     "    uart-parity[=even|odd]        UART parity config, optional.\n"                                              \
+     "    uart-stop[=number-of-bits]    UART stop bit, default is 1.\n"                                               \
+     "    uart-baudrate[=baudrate]      UART baud rate, default is 460800.\n"                                         \
+-    "    uart-flow-control             Enable flow control, disabled by default.\n"                                  \
+-    "    uart-init-deassert            Deassert DTR/RTS lines on init when flow control is disabled.\n"              \
++    "    uart-flow-control[=hardware|software|none]\n"                                                               \
++    "                                  Enable UART flow control (bare defaults to hardware),\n"                      \
++    "                                  disabled by default.\n"                                                       \
++    "    uart-init-deassert            Deassert DTR/RTS lines on init when hardware flow control is disabled.\n"     \
+     "    uart-reset                    Reopen UART device after hard resetting RCP (USB CDC ACM).\n"                 \
+     "    uart-exclusive                Lock UART device using flock / TIOCEXCL.\n" OT_SPINEL_HDLC_FORKPTY_PARAM_HELP \
      "\n"
